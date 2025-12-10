@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.hao.redisstudy.mapper.WeiboMapper">
+
+    <resultMap id="WeiboPostResult" type="com.hao.redisstudy.model.WeiboPost">
+        <id property="id" column="id"/>
+        <result property="title" column="title"/>
+        <result property="content" column="content"/>
+        <result property="author" column="author"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <sql id="baseColumns">
+        id, title, content, author, created_at, updated_at
+    </sql>
+
+    <select id="findLatest" resultMap="WeiboPostResult">
+        select <include refid="baseColumns"/>
+        from weibo
+        order by updated_at desc
+        limit #{limit}
+    </select>
+
+    <select id="findById" parameterType="long" resultMap="WeiboPostResult">
+        select <include refid="baseColumns"/>
+        from weibo
+        where id = #{id}
+        limit 1
+    </select>
+
+    <insert id="insert"
+            parameterType="com.hao.redisstudy.model.WeiboPost"
+            useGeneratedKeys="true"
+            keyProperty="id">
+        insert into weibo (title, content, author, created_at, updated_at)
+        values (#{title}, #{content}, #{author}, #{createdAt}, #{updatedAt})
+    </insert>
+
+</mapper>
