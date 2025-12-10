@@ -158,7 +158,6 @@ public class WeiboSystemIntegrationTest {
                             .content(objectMapper.writeValueAsString(post)))
                     .andExpect(status().isOk())
                     .andReturn();
-
             postIds.add(result.getResponse().getContentAsString());
         }
         long postEnd = System.currentTimeMillis();
