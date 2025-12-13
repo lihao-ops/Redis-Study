@@ -3,7 +3,9 @@ package com.hao.redisstudy.integration.redis;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.DataType;
 import org.springframework.data.redis.connection.ReturnType;
+import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.util.StringUtils;
@@ -809,6 +811,14 @@ public class RedisClientImpl implements RedisClient<String> {
         validateKey(pattern, "pattern");
         Set<String> result = redisTemplate.keys(pattern);
         return result != null ? result : Collections.emptySet();
+    }
+
+    /** 通用 -> SCAN：迭代遍历 key。示例：SCAN 0 MATCH user:* COUNT 100。 */
+    @Override
+    public Cursor<String> scan(String pattern, long count) {
+        validateKey(pattern, "pattern");
+        ScanOptions options = ScanOptions.scanOptions().match(pattern).count(count).build();
+        return redisTemplate.scan(options);
     }
 
     // endregion

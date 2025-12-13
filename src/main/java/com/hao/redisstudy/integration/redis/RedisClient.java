@@ -1,5 +1,7 @@
 package com.hao.redisstudy.integration.redis;
 
+import org.springframework.data.redis.core.Cursor;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -17,6 +19,7 @@ import java.util.Set;
  *
  * @param <T> String 操作的值类型（如 String 或序列化后的对象）
  */
+@SuppressWarnings("all")
 public interface RedisClient<T> {
 
     // region 字符串(String)
@@ -126,32 +129,32 @@ public interface RedisClient<T> {
     /**
      * 哈希 -> HSET，设置字段。示例：HSET user:1 name "Tom"。
      */
-    void hset(String key, String field, String value);
+    void hset(String key, String field, T value);
 
     /**
      * 哈希 -> HSETNX，字段不存在才写。示例：HSETNX user:1 name "Tom"。
      */
-    Boolean hsetnx(String key, String field, String value);
+    Boolean hsetnx(String key, String field, T value);
 
     /**
      * 哈希 -> HGET，读取字段。示例：HGET user:1 name。
      */
-    String hget(String key, String field);
+    T hget(String key, String field);
 
     /**
      * 哈希 -> HGETALL，获取全部字段。示例：HGETALL user:1。
      */
-    Map<String, String> hgetAll(String key);
+    Map<String, T> hgetAll(String key);
 
     /**
      * 哈希 -> HMSET，批量写字段。示例：HMSET user:1 name Tom age 18。
      */
-    void hmset(String key, Map<String, String> paramMap);
+    void hmset(String key, Map<String, T> paramMap);
 
     /**
      * 哈希 -> HMGET，批量读字段。示例：HMGET user:1 name age。
      */
-    List<String> hmget(String key, String... fields);
+    List<T> hmget(String key, String... fields);
 
     /**
      * 哈希 -> HKEYS，列出字段名。示例：HKEYS user:1。
@@ -161,7 +164,7 @@ public interface RedisClient<T> {
     /**
      * 哈希 -> HVALS，列出字段值。示例：HVALS user:1。
      */
-    List<String> hvals(String key);
+    List<T> hvals(String key);
 
     /**
      * 哈希 -> HLEN，字段数量。示例：HLEN user:1。
@@ -197,22 +200,22 @@ public interface RedisClient<T> {
     /**
      * 列表 -> LPUSH，左侧入队。示例：LPUSH queue a b。
      */
-    Long lpush(String key, String... values);
+    Long lpush(String key, T... values);
 
     /**
      * 列表 -> RPUSH，右侧入队。示例：RPUSH queue a b。
      */
-    Long rpush(String key, String... values);
+    Long rpush(String key, T... values);
 
     /**
      * 列表 -> LPOP，左出队。示例：LPOP queue。
      */
-    String lpop(String key);
+    T lpop(String key);
 
     /**
      * 列表 -> RPOP，右出队。示例：RPOP queue。
      */
-    String rpop(String key);
+    T rpop(String key);
 
     /**
      * 列表 -> BLPOP，阻塞左出队。示例：BLPOP 5 queue。
@@ -231,17 +234,17 @@ public interface RedisClient<T> {
     /**
      * 列表 -> LRANGE，区间读取。示例：LRANGE queue 0 9。
      */
-    List<String> lrange(String key, long start, long stop);
+    List<T> lrange(String key, long start, long stop);
 
     /**
      * 列表 -> LINDEX，按索引取值。示例：LINDEX queue 0。
      */
-    String lindex(String key, long index);
+    T lindex(String key, long index);
 
     /**
      * 列表 -> LSET，按索引覆盖。示例：LSET queue 0 "new"。
      */
-    void lset(String key, long index, String value);
+    void lset(String key, long index, T value);
 
     /**
      * 列表 -> LTRIM，保留指定区间。示例：LTRIM queue 0 9。
@@ -251,12 +254,12 @@ public interface RedisClient<T> {
     /**
      * 列表 -> LREM，按值删除。示例：LREM queue 1 "a"。
      */
-    Long lrem(String key, long count, String value);
+    Long lrem(String key, long count, T value);
 
     /**
      * 列表 -> RPOPLPUSH，尾取头插。示例：RPOPLPUSH src dest。
      */
-    String rpoplpush(String sourceKey, String destinationKey);
+    T rpoplpush(String sourceKey, String destinationKey);
 
     /**
      * 列表 -> LLEN，长度查询。示例：LLEN queue。
@@ -272,24 +275,24 @@ public interface RedisClient<T> {
      *
      * @return 新增的成员数
      */
-    Long sadd(String key, String... members);
+    Long sadd(String key, T... members);
 
     /**
      * 无序集合 -> SREM，移除成员。示例：SREM tags a b。
      *
      * @return 移除的成员数
      */
-    Long srem(String key, String... members);
+    Long srem(String key, T... members);
 
     /**
      * 无序集合 -> SMEMBERS，获取全部成员。示例：SMEMBERS tags。
      */
-    Set<String> smembers(String key);
+    Set<T> smembers(String key);
 
     /**
      * 无序集合 -> SISMEMBER，判断成员存在。示例：SISMEMBER tags a。
      */
-    Boolean sismember(String key, String member);
+    Boolean sismember(String key, T member);
 
     /**
      * 无序集合 -> SCARD，成员数量。示例：SCARD tags。
@@ -299,37 +302,37 @@ public interface RedisClient<T> {
     /**
      * 无序集合 -> SPOP，随机弹出一个。示例：SPOP tags。
      */
-    String spop(String key);
+    T spop(String key);
 
     /**
      * 无序集合 -> SPOP count，随机弹出多个。示例：SPOP tags 2。
      */
-    Set<String> spop(String key, long count);
+    Set<T> spop(String key, long count);
 
     /**
      * 无序集合 -> SRANDMEMBER，随机返回一个但不删除。示例：SRANDMEMBER tags。
      */
-    String srandmember(String key);
+    T srandmember(String key);
 
     /**
      * 无序集合 -> SRANDMEMBER count，随机返回多个可重复。示例：SRANDMEMBER tags 3。
      */
-    List<String> srandmember(String key, int count);
+    List<T> srandmember(String key, int count);
 
     /**
      * 无序集合 -> SINTER，求交集。示例：SINTER a b。
      */
-    Set<String> sinter(String... keys);
+    Set<T> sinter(String... keys);
 
     /**
      * 无序集合 -> SUNION，求并集。示例：SUNION a b。
      */
-    Set<String> sunion(String... keys);
+    Set<T> sunion(String... keys);
 
     /**
      * 无序集合 -> SDIFF，差集。示例：SDIFF a b。
      */
-    Set<String> sdiff(String... keys);
+    Set<T> sdiff(String... keys);
 
     /**
      * 无序集合 -> SINTERSTORE，交集存储到目标。示例：SINTERSTORE dest a b。
@@ -361,44 +364,44 @@ public interface RedisClient<T> {
      *
      * @return 新增的成员数
      */
-    Long zadd(String key, Map<String, Double> valueMap);
+    Long zadd(String key, Map<T, Double> valueMap);
 
     /**
      * 有序集合 -> ZADD，新增单个成员。示例：ZADD rank 100 user1。
      *
      * @return 1 表示新增，0 表示更新
      */
-    Long zadd(String key, double score, String member);
+    Long zadd(String key, double score, T member);
 
     /**
      * 有序集合 -> ZRANGE，按索引升序取。示例：ZRANGE rank 0 9。
      */
-    Set<String> zrange(String key, long start, long stop);
+    Set<T> zrange(String key, long start, long stop);
 
     /**
      * 有序集合 -> ZREVRANGE，按索引降序取。示例：ZREVRANGE rank 0 9。
      */
-    Set<String> zrevrange(String key, long start, long stop);
+    Set<T> zrevrange(String key, long start, long stop);
 
     /**
      * 有序集合 -> ZRANGEBYSCORE，按分数升序区间。示例：ZRANGEBYSCORE rank 0 100。
      */
-    Set<String> zrangeByScore(String key, double minScore, double maxScore);
+    Set<T> zrangeByScore(String key, double minScore, double maxScore);
 
     /**
      * 有序集合 -> ZREVRANGEBYSCORE，按分数降序区间。示例：ZREVRANGEBYSCORE rank 100 0。
      */
-    Set<String> zrevrangeByScore(String key, double maxScore, double minScore);
+    Set<T> zrevrangeByScore(String key, double maxScore, double minScore);
 
     /**
      * 有序集合 -> ZRANK，升序排名。示例：ZRANK rank user1。
      */
-    Long zrank(String key, String member);
+    Long zrank(String key, T member);
 
     /**
      * 有序集合 -> ZREVRANK，降序排名。示例：ZREVRANK rank user1。
      */
-    Long zrevrank(String key, String member);
+    Long zrevrank(String key, T member);
 
     /**
      * 有序集合 -> ZREMRANGEBYSCORE，按分数区间删除。示例：ZREMRANGEBYSCORE rank 0 50。
@@ -419,17 +422,17 @@ public interface RedisClient<T> {
      *
      * @return 删除的成员数
      */
-    Long zrem(String key, String... members);
+    Long zrem(String key, T... members);
 
     /**
      * 有序集合 -> ZSCORE，查询成员分数。示例：ZSCORE rank user1。
      */
-    Double zscore(String key, String member);
+    Double zscore(String key, T member);
 
     /**
      * 有序集合 -> ZINCRBY，分数自增。示例：ZINCRBY rank 10 user1。
      */
-    Double zincrby(String key, double increment, String member);
+    Double zincrby(String key, double increment, T member);
 
     /**
      * 有序集合 -> ZCARD，成员数量。示例：ZCARD rank。
@@ -446,14 +449,14 @@ public interface RedisClient<T> {
      *
      * @return 弹出的成员集合（含 count 个）
      */
-    Set<String> zpopmin(String key, long count);
+    Set<T> zpopmin(String key, long count);
 
     /**
      * 有序集合 -> ZPOPMAX，按分数从大到小弹出成员。示例：ZPOPMAX rank 2。
      *
      * @return 弹出的成员集合（含 count 个）
      */
-    Set<String> zpopmax(String key, long count);
+    Set<T> zpopmax(String key, long count);
 
     /**
      * 有序集合 -> ZINTERSTORE，将多个有序集合的交集存入目标 key。示例：ZINTERSTORE dest 2 a b。
@@ -516,6 +519,11 @@ public interface RedisClient<T> {
      * 通用 -> KEYS，模式匹配列出 key（生产慎用）。示例：KEYS user:*。
      */
     Set<String> keys(String pattern);
+
+    /**
+     * 通用 -> SCAN，迭代遍历 key。示例：SCAN 0 MATCH user:* COUNT 100。
+     */
+    Cursor<String> scan(String pattern, long count);
 
     // endregion
 }

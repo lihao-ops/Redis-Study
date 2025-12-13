@@ -1,9 +1,17 @@
-${AnsiColor.BRIGHT_RED}                 ____  _____ ____ ___ ____  
-${AnsiColor.BRIGHT_RED}                |  _ \\| ____|  _ \\_ _/ ___| 
-${AnsiColor.BRIGHT_RED}                | |_) |  _| | | | | | |     
-${AnsiColor.BRIGHT_RED}                |  _ <| |___| |_| | | |___  
-${AnsiColor.BRIGHT_RED}                |_| \\_\\_____|____/___\\____| ${AnsiColor.DEFAULT}
-
-${AnsiColor.BRIGHT_MAGENTA}                           Redis Study${AnsiColor.DEFAULT}
-${AnsiColor.BRIGHT_YELLOW}                     Anime Cache Explorer${AnsiColor.DEFAULT}
- ${AnsiColor.BRIGHT_GREEN}${spring.application.name}${AnsiColor.DEFAULT}  |  ${AnsiColor.BRIGHT_BLUE}${spring.profiles.active:default}${AnsiColor.DEFAULT}  |  ${AnsiColor.BRIGHT_RED}Redis @ ${spring.data.redis.host}:${spring.data.redis.port}/${spring.data.redis.database}${AnsiColor.DEFAULT}
+${AnsiColor.BRIGHT_RED}       _._
+${AnsiColor.BRIGHT_RED}  _.-``__ ''-._
+${AnsiColor.BRIGHT_RED}_.-``    `.  `_.  ''-._           ${AnsiColor.BRIGHT_RED}Redis Study
+${AnsiColor.BRIGHT_RED}.-`` .-```.  ```\/    _.,_ ''-._
+${AnsiColor.BRIGHT_RED}(    '      ,       .-`  | `,    )     ${AnsiColor.BRIGHT_YELLOW}Anime Cache Explorer
+${AnsiColor.BRIGHT_RED}|`-._`-...-` __...-.``-._|'` _.-'|
+${AnsiColor.BRIGHT_RED}|    `-._   `._    /     _.-'    |     ${AnsiColor.BRIGHT_GREEN}${spring.application.name}${AnsiColor.DEFAULT}
+${AnsiColor.BRIGHT_RED} `-._    `-._  `-./  _.-'    _.-'      ${AnsiColor.BRIGHT_BLUE}${spring.profiles.active:default}${AnsiColor.DEFAULT}
+${AnsiColor.BRIGHT_RED}|`-._`-._    `-.__.-'    _.-'_.-'|     ${AnsiColor.BRIGHT_RED}Redis @ ${spring.data.redis.host}:${spring.data.redis.port}/${spring.data.redis.database}${AnsiColor.DEFAULT}
+${AnsiColor.BRIGHT_RED}|    `-._`-._        _.-'_.-'    |
+${AnsiColor.BRIGHT_RED} `-._    `-._`-.__.-'_.-'    _.-'
+${AnsiColor.BRIGHT_RED}|`-._`-._    `-.__.-'    _.-'_.-'|
+${AnsiColor.BRIGHT_RED}|    `-._`-._        _.-'_.-'    |
+${AnsiColor.BRIGHT_RED} `-._    `-._`-.__.-'_.-'    _.-'
+${AnsiColor.BRIGHT_RED}     `-._    `-.__.-'    _.-'
+${AnsiColor.BRIGHT_RED}         `-._        _.-'
+${AnsiColor.BRIGHT_RED}             `-.__.-'${AnsiColor.DEFAULT}

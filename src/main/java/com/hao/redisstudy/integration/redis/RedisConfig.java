@@ -81,8 +81,7 @@ public class RedisConfig {
     }
 
     @Bean
-    public RedisClient<String> redisClient(StringRedisTemplate stringRedisTemplate) {
+    public com.hao.redisstudy.integration.redis.RedisClient<String> redisClient(StringRedisTemplate stringRedisTemplate) {
         return new RedisClientImpl(stringRedisTemplate);
     }
 }
-
