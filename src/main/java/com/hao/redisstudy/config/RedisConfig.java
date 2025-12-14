@@ -1,5 +1,6 @@
-package com.hao.redisstudy.integration.redis;
+package com.hao.redisstudy.config;
 
+import com.hao.redisstudy.integration.redis.RedisClientImpl;
 import io.lettuce.core.api.StatefulConnection;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
