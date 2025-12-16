@@ -1,4 +1,4 @@
-package com.hao.redisstudy.common;
+package com.hao.redisstudy.common.enums;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

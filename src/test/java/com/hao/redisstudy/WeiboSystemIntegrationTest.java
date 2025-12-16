@@ -2,8 +2,8 @@ package com.hao.redisstudy;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hao.redisstudy.common.RedisKeysEnum;
-import com.hao.redisstudy.model.WeiboPost;
+import com.hao.redisstudy.common.enums.RedisKeysEnum;
+import com.hao.redisstudy.common.model.WeiboPost;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

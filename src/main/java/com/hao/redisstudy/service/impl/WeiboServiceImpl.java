@@ -2,7 +2,7 @@ package com.hao.redisstudy.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.hao.redisstudy.common.RedisKeysEnum;
+import com.hao.redisstudy.common.enums.RedisKeysEnum;
 import com.hao.redisstudy.common.model.WeiboPost;
 import com.hao.redisstudy.integration.redis.RedisClient;
 import com.hao.redisstudy.service.WeiboService;
