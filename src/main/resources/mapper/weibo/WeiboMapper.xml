@@ -2,7 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.hao.redisstudy.mapper.WeiboMapper">
 
-    <resultMap id="WeiboPostResult" type="com.hao.redisstudy.model.WeiboPost">
+    <resultMap id="WeiboPostResult" type="com.hao.redisstudy.common.model.WeiboPost">
         <id property="id" column="id"/>
         <result property="title" column="title"/>
         <result property="content" column="content"/>
@@ -15,7 +15,7 @@
         id, title, content, author, created_at, updated_at
     </sql>
 
-    <select id="findLatest" resultMap="WeiboPostResult">
+    <select id="findLatest" parameterType="int" resultMap="WeiboPostResult">
         select <include refid="baseColumns"/>
         from weibo
         order by updated_at desc
@@ -30,7 +30,7 @@
     </select>
 
     <insert id="insert"
-            parameterType="com.hao.redisstudy.model.WeiboPost"
+            parameterType="com.hao.redisstudy.common.model.WeiboPost"
             useGeneratedKeys="true"
             keyProperty="id">
         insert into weibo (title, content, author, created_at, updated_at)

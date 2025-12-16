@@ -1,4 +1,4 @@
-package com.hao.redisstudy.demo;
+package com.hao.redisstudy.common.demo;
 
 import com.hao.redisstudy.integration.redis.RedisClient;
 import lombok.RequiredArgsConstructor;

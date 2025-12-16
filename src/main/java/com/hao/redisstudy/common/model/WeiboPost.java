@@ -1,4 +1,4 @@
-package com.hao.redisstudy.model;
+package com.hao.redisstudy.common.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

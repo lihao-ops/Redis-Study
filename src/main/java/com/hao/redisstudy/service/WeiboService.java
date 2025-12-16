@@ -1,7 +1,8 @@
 package com.hao.redisstudy.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.hao.redisstudy.model.WeiboPost;
+import com.hao.redisstudy.common.model.WeiboPost;
+
 
 import java.util.List;
 import java.util.Map;

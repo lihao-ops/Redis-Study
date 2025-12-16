@@ -1,7 +1,7 @@
 package com.hao.redisstudy.web.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.hao.redisstudy.model.WeiboPost;
+import com.hao.redisstudy.common.model.WeiboPost;
 import com.hao.redisstudy.service.WeiboService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;

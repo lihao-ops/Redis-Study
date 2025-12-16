@@ -1,4 +1,4 @@
-package com.hao.redisstudy.interceptor;
+package com.hao.redisstudy.common.interceptor;
 
 import com.hao.redisstudy.common.RedisKeysEnum;
 import com.hao.redisstudy.integration.redis.RedisClient;
