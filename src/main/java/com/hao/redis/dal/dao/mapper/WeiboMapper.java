@@ -1,4 +1,4 @@
-package com.hao.redis.mapper;
+package com.hao.redis.dal.dao.mapper;
 
 import org.apache.ibatis.annotations.Mapper;
 
