@@ -1,40 +1,21 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.hao.redisstudy.mapper.WeiboMapper">
+<mapper namespace="com.hao.redis.dal.dao.WeiboMapper">
 
-    <resultMap id="WeiboPostResult" type="com.hao.redisstudy.common.model.WeiboPost">
-        <id property="id" column="id"/>
-        <result property="title" column="title"/>
+    <resultMap id="BaseResultMap" type="com.hao.redis.dal.model.WeiboPost">
+        <id property="postId" column="id"/>
+        <result property="userId" column="author"/>
         <result property="content" column="content"/>
-        <result property="author" column="author"/>
-        <result property="createdAt" column="created_at"/>
-        <result property="updatedAt" column="updated_at"/>
+        <result property="createTime" column="created_at"/>
     </resultMap>
 
     <sql id="baseColumns">
-        id, title, content, author, created_at, updated_at
+        id, content, author, created_at
     </sql>
 
-    <select id="findLatest" parameterType="int" resultMap="WeiboPostResult">
-        select <include refid="baseColumns"/>
-        from weibo
-        order by updated_at desc
-        limit #{limit}
-    </select>
-
-    <select id="findById" parameterType="long" resultMap="WeiboPostResult">
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
         select <include refid="baseColumns"/>
         from weibo
         where id = #{id}
-        limit 1
     </select>
-
-    <insert id="insert"
-            parameterType="com.hao.redisstudy.common.model.WeiboPost"
-            useGeneratedKeys="true"
-            keyProperty="id">
-        insert into weibo (title, content, author, created_at, updated_at)
-        values (#{title}, #{content}, #{author}, #{createdAt}, #{updatedAt})
-    </insert>
-
 </mapper>
