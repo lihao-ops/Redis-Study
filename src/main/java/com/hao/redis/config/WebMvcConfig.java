@@ -22,6 +22,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(visitInterceptor)
                 .addPathPatterns("/**")
-                .excludePathPatterns("/system/uv");
+                .excludePathPatterns("/system/uv", "/weibo/system/uv");
     }
 }

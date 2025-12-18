@@ -102,7 +102,7 @@ public class RedisConfig {
         // 优化方案：设置为 false (关闭共享)。
         // 作用：配合连接池，强制让每个 Redis 操作都从池中获取一个独立的、独占的物理连接。
         // 结果：如果有 1000 个连接，就能同时有 1000 个 TCP 通道在传输数据，吞吐量成倍提升！
-        connectionFactory.setShareNativeConnection(true);
+        connectionFactory.setShareNativeConnection(false);
         // 初始化工厂
         connectionFactory.afterPropertiesSet();
         log.info("🚀 Redis Cluster 连接工厂创建完成 | 节点: {} | 连接池上限: {} | 共享连接模式: 关闭",

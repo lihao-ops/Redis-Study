@@ -14,8 +14,17 @@ public class RateLimitConstants {
     /**
      * 全局服务限流阈值 (QPS)
      * 作用：保护整个服务集群不被突发流量打垮，作为系统的最后一道防线。
+     * todo 最大稳定 QPS，而不是最大极限 QPS
+     * 在不排队、不抖动、不堆积、P95 < 200m 的情况下的最大 QPS
+     * | QPS阈值 | Avg Latency | P95    | 状态   |
+     * | ----- | ----------- | ------ | ---- |
+     * | 600   | <100ms      | <150ms | ✔稳   |
+     * | 800   | <150ms      | <200ms | ✔稳   |
+     * | 1000  | <200ms      | ~300ms | ⚠️轻压 |
+     * | 1200  | >500ms      | ~800ms | ❌排队  |
+     *
      */
-    public static final String GLOBAL_SERVICE_QPS = "1000";
+    public static final String GLOBAL_SERVICE_QPS = "2500";
 
     /**
      * 全局默认限流阈值 (QPS)

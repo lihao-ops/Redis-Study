@@ -5,6 +5,7 @@ import com.hao.redis.common.exception.RateLimitException;
 import com.hao.redis.common.interceptor.SimpleRateLimiter;
 import com.hao.redis.common.util.RedisRateLimiter;
 import jakarta.servlet.*;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
@@ -63,7 +64,9 @@ public class GlobalRateLimitFilter implements Filter {
         // 快速失败：如果当前节点负载过高，直接在内存中拒绝，避免浪费 Redis 资源。
         if (!simpleRateLimiter.tryAcquire(GLOBAL_LIMIT_KEY, QPS)) {
             log.warn("全局单机限流触发|Global_standalone_limit_triggered,qps={}", QPS);
-            throw new RateLimitException("System busy (Standalone limit)");
+            ((HttpServletResponse) response).setStatus(429);
+            return;
+//            throw new RateLimitException("System busy (Standalone limit)");
         }
 
         // 2. 第二道防线：分布式限流 (Redis)
@@ -71,7 +74,9 @@ public class GlobalRateLimitFilter implements Filter {
         // 注意：RedisRateLimiter 内部已实现 Fail-Open（异常返回 true），保障可用性。
         if (!redisRateLimiter.tryAcquire(GLOBAL_LIMIT_KEY, (int) QPS, 1)) {
             log.warn("全局分布式限流触发|Global_distributed_limit_triggered,qps={}", QPS);
-            throw new RateLimitException("System busy (Cluster limit)");
+            ((HttpServletResponse) response).setStatus(429);
+            return;
+//            throw new RateLimitException("System busy (Cluster limit)");
         }
 
         // 放行
