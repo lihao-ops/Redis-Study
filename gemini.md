@@ -264,36 +264,52 @@ Redis / MySQL / MQ
 
 十一、项目当前结构快照（AI 记忆区）
 
-> 说明：此区域用于记录项目核心文件位置，确保 AI 在后续对话中准确索引文件。
+> 说明：此区域用于记录项目核心文件位置，确保 AI 在后续对话中准确索引文件。已排除 `.git`、`target` 等无效/编译产物。
 
 **项目根目录**: `e:\project\RedisStudy`
 
-1. **项目根目录文件**
+1. **根目录**
    - `gemini.md`: 项目规范与记忆文件
+   - `README.md`: 项目说明
    - `pom.xml`: Maven 依赖构建配置
+   - `目录结构图.md`: 目录快照
+   - `RedisApplication.java`: 根级示例入口
+   - `RedisRateLimiter.java`: 根级空占位
+   - `SimpleRateLimitTest.java`: 根级空占位
 
-2. **资源文件 (`src/main/resources`)**
-   - `banner.txt`: Spring Boot 启动横幅
-   - `scripts/rate_limiter.lua`: Redis 分布式限流 Lua 脚本
-
-3. **核心源码 (`src/main/java/com/hao/redis`)**
+2. **主程序源码 (`src/main/java/com/hao/redis`)**
    - `RedisApplication.java`: [Boot] 应用启动入口
-   - **config**
-     - `config/RedisConfig.java`: [Config] RedisTemplate 序列化配置
-   - **controller**
-     - `controller/HealthController.java`: [Web] 健康检查接口
-   - **common/aspect**
-     - `common/aspect/SimpleRateLimit.java`: [Annotation] 单机限流注解
-     - `common/aspect/SimpleRateLimitAspect.java`: [Aspect] 单机限流切面逻辑
-   - **common/exception**
-     - `common/exception/GlobalExceptionHandler.java`: [Advice] 全局异常处理
-     - `common/exception/RateLimitException.java`: [Exception] 限流业务异常
-   - **common/interceptor**
-     - `common/interceptor/SimpleRateLimiter.java`: [Component] Guava 令牌桶实现
-   - **common/util**
-     - `common/util/RedisRateLimiter.java`: [Util] Redis 分布式限流工具
+   - `config/RedisConfig.java`: [Config] RedisTemplate 序列化配置
+   - `config/ThreadPoolConfig.java`: [Config] 自定义线程池
+   - `config/WebMvcConfig.java`: [Config] MVC 拦截器配置
+   - `controller/WeiboController.java`: [Web] 微博场景接口
+   - `common/aspect/SimpleRateLimit.java`: [Annotation] 单机限流注解
+   - `common/aspect/SimpleRateLimitAspect.java`: [Aspect] 单机限流切面
+   - `common/demo/RedisSampleRunner.java`: [Demo] Redis 读写示例
+   - `common/enums/RedisKeysEnum.java`: [Enum] Redis Key 规范
+   - `common/exception/GlobalExceptionHandler.java`: [Advice] 全局异常处理
+   - `common/exception/RateLimitException.java`: [Exception] 限流业务异常
+   - `common/interceptor/SimpleRateLimiter.java`: [Component] Guava 令牌桶实现
+   - `common/interceptor/VisitInterceptor.java`: [Interceptor] 访问拦截器
+   - `common/util/RedisRateLimiter.java`: [Util] Redis 分布式限流
+   - `dal/dao/mapper/WeiboMapper.java`: [DAO] 微博数据访问接口
+   - `dal/model/WeiboPost.java`: [Model] 微博实体
+   - `integration/redis/RedisClient.java`: [SPI] Redis 客户端接口
+   - `integration/redis/RedisClientImpl.java`: [Impl] Redis 客户端实现
+   - `service/WeiboService.java`: [Service] 微博业务接口
+   - `service/impl/WeiboServiceImpl.java`: [Impl] 微博业务实现
 
-4. **测试源码 (`src/test/java/com/hao/redis`)**
-   - `common/aspect/SimpleRateLimitTest.java`: [Test] 单机限流切面单元测试
+3. **资源文件 (`src/main/resources`)**
+   - `application.yml`: Spring Boot 配置
+   - `banner.txt`: 启动横幅
+   - `mapper/weibo/WeiboMapper.xml`: MyBatis 映射
+
+4. **测试代码 (`src/test/java/com/hao/redis`)**
+   - `common/aspect/SimpleRateLimitTest.java`: [Test] 单机限流切面测试
+   - `redis/RedisClientImplTest.java`: [Test] Redis 客户端实现测试
+   - `report/InventoryCheck/VirtualThreadSeckillTest.java`: [Report] 虚拟线程秒杀实验
+   - `report/limit/GuavaRateLimiterTest.java`: [Report] Guava 限流实验
+   - `report/RedisClusterPerformanceTest.java`: [Report] Redis 集群性能实验
+   - `WeiboSystemIntegrationTest.java`: [IT] 微博系统集成测试
 
 **注意**：生成代码时必须严格匹配上述包路径，禁止在 `src/main` 下生成 `Test` 结尾的测试类。
