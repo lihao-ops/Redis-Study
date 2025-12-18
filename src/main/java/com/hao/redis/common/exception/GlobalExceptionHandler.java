@@ -95,6 +95,10 @@ public class GlobalExceptionHandler {
      * @return 请求URI，去除冗余前缀
      */
     private String getRequestPath(WebRequest request) {
+        // 实现思路：
+        // 1. 获取请求描述信息。
+        // 2. 剔除冗余前缀，提取纯净URI。
+
         // WebRequest.getDescription(false) 返回格式通常为 "uri=/path;client=..."
         // 这里简单处理去除 "uri=" 前缀，使日志更整洁
         return request.getDescription(false).replace("uri=", "");

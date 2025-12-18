@@ -261,3 +261,39 @@ Redis / MySQL / MQ
 ✅ 显著拉开CRUD工程师差距的项目
 
 ✅ 能体现“我能把系统跑在生产上”的能力
+
+十一、项目当前结构快照（AI 记忆区）
+
+> 说明：此区域用于记录项目核心文件位置，确保 AI 在后续对话中准确索引文件。
+
+**项目根目录**: `e:\project\RedisStudy`
+
+1. **项目根目录文件**
+   - `gemini.md`: 项目规范与记忆文件
+   - `pom.xml`: Maven 依赖构建配置
+
+2. **资源文件 (`src/main/resources`)**
+   - `banner.txt`: Spring Boot 启动横幅
+   - `scripts/rate_limiter.lua`: Redis 分布式限流 Lua 脚本
+
+3. **核心源码 (`src/main/java/com/hao/redis`)**
+   - `RedisApplication.java`: [Boot] 应用启动入口
+   - **config**
+     - `config/RedisConfig.java`: [Config] RedisTemplate 序列化配置
+   - **controller**
+     - `controller/HealthController.java`: [Web] 健康检查接口
+   - **common/aspect**
+     - `common/aspect/SimpleRateLimit.java`: [Annotation] 单机限流注解
+     - `common/aspect/SimpleRateLimitAspect.java`: [Aspect] 单机限流切面逻辑
+   - **common/exception**
+     - `common/exception/GlobalExceptionHandler.java`: [Advice] 全局异常处理
+     - `common/exception/RateLimitException.java`: [Exception] 限流业务异常
+   - **common/interceptor**
+     - `common/interceptor/SimpleRateLimiter.java`: [Component] Guava 令牌桶实现
+   - **common/util**
+     - `common/util/RedisRateLimiter.java`: [Util] Redis 分布式限流工具
+
+4. **测试源码 (`src/test/java/com/hao/redis`)**
+   - `common/aspect/SimpleRateLimitTest.java`: [Test] 单机限流切面单元测试
+
+**注意**：生成代码时必须严格匹配上述包路径，禁止在 `src/main` 下生成 `Test` 结尾的测试类。
