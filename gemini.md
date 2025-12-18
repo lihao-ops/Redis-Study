@@ -75,7 +75,7 @@ src/main/java
      ├── integration           // 外部系统集成层（Redis / MQ / 第三方服务）
      ├── config                // 配置类（Bean / 中间件配置）
      ├── common
-     │   ├── constant          // 常量定义
+     │   ├── constants          // 常量定义
      │   ├── exception         // 统一异常定义
      │   ├── util              // 通用工具类
      └── application           // 应用编排层（可选，用于复杂业务流程）

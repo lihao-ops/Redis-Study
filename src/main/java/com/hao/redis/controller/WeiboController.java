@@ -1,6 +1,8 @@
 package com.hao.redis.controller;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.hao.redis.common.aspect.SimpleRateLimit;
+import com.hao.redis.common.constants.RateLimitConstants;
 import com.hao.redis.dal.model.WeiboPost;
 import com.hao.redis.service.WeiboService;
 import lombok.RequiredArgsConstructor;
@@ -51,6 +53,7 @@ public class WeiboController {
      * 注意：userId 通常从 Header 或 Token 中获取，模拟登录状态
      */
     @PostMapping("/weibo")
+    @SimpleRateLimit(qps = RateLimitConstants.WEIBO_CREATE_QPS, type = SimpleRateLimit.LimitType.DISTRIBUTED)
     public String createPost(@RequestHeader("userId") String userId, @RequestBody WeiboPost body) throws JsonProcessingException {
         return weiboService.createPost(userId, body);
     }

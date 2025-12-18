@@ -1,6 +1,6 @@
-# Redis Study - Anime Cache Explorer
+# Redis Architecture - Weibo Social Network Implementation
 
-这是一个基于 Spring Boot 的 Redis 学习项目，通过模拟微博（Weibo）的核心功能，演示了 Redis 各种数据结构（String, Hash, List, Sorted Set）在实际高并发业务场景中的应用。
+这是一个基于 Spring Boot 的高并发社交网络（Weibo）核心业务架构项目。本项目并非简单的 CRUD 练习，而是用于验证后端工程能力的实战演练，重点演示了 Redis 各种数据结构（String, Hash, List, Sorted Set）在实际高并发业务场景中的设计与应用。
 
 ## 项目简介
 

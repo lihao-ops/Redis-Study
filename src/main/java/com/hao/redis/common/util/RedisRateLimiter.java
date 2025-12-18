@@ -1,10 +1,8 @@
 package com.hao.redis.common.util;
 
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
@@ -32,11 +30,28 @@ public class RedisRateLimiter {
     private final StringRedisTemplate stringRedisTemplate;
     private final DefaultRedisScript<Long> limitScript;
 
+    // Lua 脚本：固定窗口计数器
+    // KEYS[1]: 限流 Key
+    // ARGV[1]: 限流阈值
+    // ARGV[2]: 时间窗口(秒)
+    private static final String LUA_SCRIPT_TEXT =
+            "local key = KEYS[1] " +
+            "local limit = tonumber(ARGV[1]) " +
+            "local window = tonumber(ARGV[2]) " +
+            "local current = redis.call('INCR', key) " +
+            "if current == 1 then " +
+            "    redis.call('EXPIRE', key, window) " +
+            "end " +
+            "if current > limit then " +
+            "    return 0 " +
+            "end " +
+            "return 1";
+
     public RedisRateLimiter(StringRedisTemplate stringRedisTemplate) {
         this.stringRedisTemplate = stringRedisTemplate;
         // 初始化 Lua 脚本
         this.limitScript = new DefaultRedisScript<>();
-        this.limitScript.setScriptSource(new ResourceScriptSource(new ClassPathResource("scripts/rate_limiter.lua")));
+        this.limitScript.setScriptText(LUA_SCRIPT_TEXT);
         this.limitScript.setResultType(Long.class);
     }
 

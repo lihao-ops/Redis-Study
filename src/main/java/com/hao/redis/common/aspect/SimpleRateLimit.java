@@ -19,4 +19,16 @@ public @interface SimpleRateLimit {
      * 限流提示
      */
     String message() default "请求过于频繁，请稍后重试";
+
+    /**
+     * 限流类型
+     */
+    LimitType type() default LimitType.STANDALONE;
+
+    enum LimitType {
+        /** 单机限流 (Guava RateLimiter) */
+        STANDALONE,
+        /** 分布式限流 (Redis + Lua) + 单机兜底 */
+        DISTRIBUTED
+    }
 }

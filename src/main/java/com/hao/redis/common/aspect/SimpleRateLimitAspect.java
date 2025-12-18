@@ -2,6 +2,7 @@ package com.hao.redis.common.aspect;
 
 import com.hao.redis.common.exception.RateLimitException;
 import com.hao.redis.common.interceptor.SimpleRateLimiter;
+import com.hao.redis.common.util.RedisRateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -20,17 +21,18 @@ import java.util.concurrent.ConcurrentHashMap;
  * 单机限流切面
  *
  * 类职责：
- * 拦截带有 @SimpleRateLimit 注解的方法，执行单机维度的令牌桶限流检查。
+ * 拦截带有 @SimpleRateLimit 注解的方法，执行多级限流检查（单机 + 分布式）。
  *
  * 设计目的：
  * 1. 业务解耦：将限流逻辑从业务代码中剥离，通过注解声明式使用。
- * 2. 系统保护：防止单机过载，确保服务在极端流量下的可用性。
+ * 2. 多级防护：结合 Guava 单机限流（保护节点）与 Redis 分布式限流（保护下游），实现高可用架构。
  *
  * 实现思路：
  * - 使用 Spring AOP @Around 环绕通知拦截目标方法。
  * - 解析注解中的 QPS 配置（支持动态配置）。
- * - 调用 SimpleRateLimiter (Guava RateLimiter封装) 尝试获取令牌。
- * - 获取失败则抛出 RateLimitException，由全局异常处理器兜底。
+ * - 第一层：调用 SimpleRateLimiter (Guava) 进行本地快速检查。
+ * - 第二层：若配置为 DISTRIBUTED，调用 RedisRateLimiter (Lua) 进行集群总量检查。
+ * - 任一环节失败则抛出 RateLimitException。
  */
 @Slf4j
 @Aspect
@@ -42,6 +44,9 @@ public class SimpleRateLimitAspect {
 
     @Autowired
     private SimpleRateLimiter rateLimiter;
+
+    @Autowired
+    private RedisRateLimiter redisRateLimiter;
 
     /**
      * 记录已打印过的配置Key，防止重复打印，同时支持多个不同的配置Key
@@ -72,11 +77,23 @@ public class SimpleRateLimitAspect {
         // 获取请求路径作为限流 key
         String key = getRequestUri();
         double qps = parseQps(limit.qps());
-        // 尝试获取令牌
-        boolean allowed = rateLimiter.tryAcquire(key, qps);
-        if (!allowed) {
-            log.warn("请求被限流|Request_rate_limited,uri={},qps={}", key, qps);
+
+        // 1. 第一道防线：单机限流 (Guava)
+        // 无论配置何种类型，始终启用单机限流作为兜底。
+        // 作用：保护当前节点不被突发流量打垮，同时在 Redis 故障（Fail-Open）时提供最后一道防线。
+        if (!rateLimiter.tryAcquire(key, qps)) {
+            log.warn("单机限流拦截|Standalone_rate_limited,uri={},qps={}", key, qps);
             throw new RateLimitException(limit.message());
+        }
+
+        // 2. 第二道防线：分布式限流 (Redis)
+        // 作用：控制集群总流量，防止下游服务过载。
+        if (limit.type() == SimpleRateLimit.LimitType.DISTRIBUTED) {
+            // 注意：RedisRateLimiter 内部已实现 Fail-Open（异常返回 true），保障可用性
+            if (!redisRateLimiter.tryAcquire(key, (int) qps, 1)) {
+                log.warn("分布式限流拦截|Distributed_rate_limited,uri={},qps={}", key, qps);
+                throw new RateLimitException(limit.message());
+            }
         }
 
         // 放行

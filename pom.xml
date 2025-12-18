@@ -13,7 +13,7 @@
     <artifactId>redis-study</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>redis-study</name>
-    <description>Spring Boot Redis study project</description>
+    <description>Enterprise-grade High Concurrency Social Network Architecture based on Redis and Spring Boot</description>
 
     <properties>
         <java.version>21</java.version>

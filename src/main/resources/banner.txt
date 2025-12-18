@@ -17,7 +17,7 @@ ${AnsiColor.BRIGHT_RED}
                                                              `-._        _.-'
                                                                  `-.__.-'
 
-            ${AnsiColor.BRIGHT_YELLOW}                                           :: Redis Study Engineering ::${AnsiColor.DEFAULT}
+            ${AnsiColor.BRIGHT_YELLOW}                                           :: Redis Architecture Engineering ::${AnsiColor.DEFAULT}
             ${AnsiColor.BRIGHT_CYAN}                                     Spring Boot ${spring.boot.version} | Java ${java.version}${AnsiColor.DEFAULT}
 
             ${AnsiColor.BRIGHT_GREEN}                                          Application  : ${spring.application.name}${AnsiColor.DEFAULT}

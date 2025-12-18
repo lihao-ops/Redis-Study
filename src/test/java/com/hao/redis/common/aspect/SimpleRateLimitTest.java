@@ -4,6 +4,7 @@ import com.hao.redis.common.exception.RateLimitException;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,6 +51,9 @@ public class SimpleRateLimitTest {
     @Autowired
     private RateLimitTestService testService;
 
+    @Autowired
+    private com.hao.redis.common.util.RedisRateLimiter redisRateLimiter;
+
     /**
      * 测试场景1：接口级别限流（Controller）
      * 预期：QPS=1，连续请求5次，应该只有1次成功（HTTP 200），其余4次被限流（HTTP 429）。
@@ -62,16 +66,14 @@ public class SimpleRateLimitTest {
 
         // 模拟短时间内发起 5 次请求
         for (int i = 0; i < 5; i++) {
-            try {
-                // 使用 MockMvc 发起请求，获取响应状态码
-                int status = mockMvc.perform(get("/test/rate-limit/interface"))
-                        .andReturn().getResponse().getStatus();
+            // 使用 MockMvc 发起请求，获取响应状态码
+            int status = mockMvc.perform(get("/test/rate-limit/interface"))
+                    .andReturn().getResponse().getStatus();
 
-                if (status == 200) successCount++;
-                if (status == 429) limitCount++;
-
-            } catch (Exception e) {
-                log.error("请求异常", e);
+            if (status == 200) {
+                successCount++;
+            } else if (status == 429) {
+                limitCount++;
             }
         }
 
@@ -127,6 +129,64 @@ public class SimpleRateLimitTest {
         RequestContextHolder.resetRequestAttributes();
     }
 
+    /**
+     * 测试场景3：分布式限流（Service）
+     * 预期：真实调用 Redis Lua 脚本，同时通过单机限流检查，验证 QPS=10 的限流效果
+     */
+    @Test
+    @DisplayName("分布式限流_真实Redis集成_验证限流阈值")
+    public void testDistributedRateLimit() {
+        // 1. 准备上下文，确保限流 Key 唯一，避免与其他测试冲突
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRequestURI("/test/distributed/limit/real");
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        int successCount = 0;
+        int limitCount = 0;
+        int totalRequests = 15; // 注解配置 QPS=10, 我们发送 15 次请求
+
+        // 2. 循环调用 (真实触发 Redis Lua 脚本)
+        for (int i = 0; i < totalRequests; i++) {
+            try {
+                testService.doDistributed();
+                successCount++;
+            } catch (RateLimitException e) {
+                limitCount++;
+            }
+        }
+
+        log.info("分布式限流实测结果|Distributed_limit_real_test,success={},limited={}", successCount, limitCount);
+
+        // 3. 验证结果：1秒内允许10次，超出部分应被拒绝
+        // 注意：Redis 性能极高，单机通常支持 8w+ QPS，这里的瓶颈是业务配置的阈值(10)
+        assertTrue(successCount <= 10, "允许的请求数不应超过QPS阈值");
+        assertTrue(limitCount > 0, "超出的请求数应被拒绝");
+
+        RequestContextHolder.resetRequestAttributes();
+    }
+
+    /**
+     * 基准测试：Redis Lua 脚本极限吞吐量
+     * 目的：测试不考虑业务逻辑时，Redis 限流组件的纯粹性能 (OPS)。
+     */
+    @Test
+    @DisplayName("基准测试_RedisLua脚本极限吞吐量")
+    public void testRedisLuaThroughput() {
+        String key = "benchmark_test";
+        int limit = 1000000; // 设置极大阈值，确保不触发限流，只测执行速度
+        int window = 60;
+        int iterations = 2000; // 执行 2000 次
+
+        long start = System.currentTimeMillis();
+        for (int i = 0; i < iterations; i++) {
+            redisRateLimiter.tryAcquire(key, limit, window);
+        }
+        long cost = System.currentTimeMillis() - start;
+
+        double ops = (double) iterations / (cost / 1000.0);
+        log.info("Redis Lua 极限吞吐量|Redis_lua_benchmark,ops={},cost={}ms,iterations={}", String.format("%.2f", ops), cost, iterations);
+    }
+
     // ================= 内部测试辅助类 =================
 
     @TestConfiguration
@@ -157,6 +217,11 @@ public class SimpleRateLimitTest {
         @SimpleRateLimit(qps = "${test.rate.limit}")
         public void doSomething() {
             // 模拟业务逻辑
+        }
+
+        @SimpleRateLimit(qps = "10", type = SimpleRateLimit.LimitType.DISTRIBUTED)
+        public void doDistributed() {
+            // 模拟分布式业务
         }
     }
 }
