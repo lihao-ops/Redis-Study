@@ -27,11 +27,6 @@ public class RateLimitConstants {
     public static final String GLOBAL_SERVICE_QPS = "2500";
 
     /**
-     * 全局默认限流阈值 (QPS)
-     */
-    public static final String DEFAULT_QPS = "100";
-
-    /**
      * 微博发布接口限流阈值 (QPS)
      * 业务场景：写操作，涉及数据库与Redis多重写入，资源消耗大，阈值设为 10
      */
