@@ -14,12 +14,15 @@ import java.util.Map;
  * 全局异常处理器
  *
  * 类职责：
- * 统一捕获并处理Controller层抛出的异常，将异常转换为标准化的API响应格式。
+ * 统一捕获并处理控制层抛出的异常，将异常转换为标准化的接口响应格式。
  *
  * 设计目的：
  * 1. 屏蔽底层异常细节，防止敏感信息泄露给前端。
  * 2. 统一错误码与错误提示，降低前后端沟通成本。
  * 3. 集中记录异常日志，便于线上故障排查。
+ *
+ * 为什么需要该类：
+ * 异常处理是全局性能力，通过统一入口可保证响应一致性与日志可追溯性。
  *
  * 实现思路：
  * - 使用 @RestControllerAdvice 切面拦截所有Controller异常。
@@ -36,7 +39,7 @@ public class GlobalExceptionHandler {
      * 实现逻辑：
      * 1. 捕获 RateLimitException。
      * 2. 记录 WARN 级别日志（限流属于预期内业务保护，非系统错误）。
-     * 3. 返回 HTTP 429 (Too Many Requests) 状态码。
+     * 3. 返回 HTTP 429（请求过多）状态码。
      *
      * @param e 限流异常对象
      * @param request 请求上下文
@@ -73,7 +76,7 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Map<String, Object> handleException(Exception e, WebRequest request) {
         // 实现思路：
-        // 1. 必须打印堆栈，否则无法排查线上Bug。
+        // 1. 必须打印堆栈，否则无法排查线上问题。
         // 2. 记录请求路径，定位异常触发点。
         // 3. 隐藏具体错误细节，防止安全漏洞暴露。
         log.error("系统未知异常|System_unknown_error,path={},message={}", getRequestPath(request), e.getMessage(), e);
@@ -92,12 +95,12 @@ public class GlobalExceptionHandler {
      * 2. 去除 "uri=" 前缀，仅保留路径部分，保持日志整洁。
      *
      * @param request 请求上下文
-     * @return 请求URI，去除冗余前缀
+     * @return 请求路径，去除冗余前缀
      */
     private String getRequestPath(WebRequest request) {
         // 实现思路：
         // 1. 获取请求描述信息。
-        // 2. 剔除冗余前缀，提取纯净URI。
+        // 2. 剔除冗余前缀，提取纯净路径。
 
         // WebRequest.getDescription(false) 返回格式通常为 "uri=/path;client=..."
         // 这里简单处理去除 "uri=" 前缀，使日志更整洁

@@ -16,6 +16,28 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Redis 集群性能压测
+ *
+ * 类职责：
+ * 验证 Redis 集群在并发场景下的写入与读取性能。
+ *
+ * 测试目的：
+ * 1. 验证高并发写入与读取的吞吐能力与稳定性。
+ * 2. 评估连接池与路由是否存在瓶颈。
+ *
+ * 设计思路：
+ * - 使用线程池与倒计时门闩模拟瞬时并发。
+ * - 生成独立批次前缀确保测试隔离。
+ * - 统计成功/失败与TPS指标。
+ *
+ * 为什么需要该类：
+ * 集群性能是系统上限关键指标，需通过可重复的压测验证。
+ *
+ * 核心实现思路：
+ * - 分阶段执行写入与读取压测。
+ * - 输出性能指标并清理测试数据。
+ */
 @Slf4j
 @SpringBootTest
 public class RedisClusterPerformanceTest {
@@ -29,25 +51,25 @@ public class RedisClusterPerformanceTest {
     private static final int TOTAL_REQUESTS = THREAD_COUNT * REQUESTS_PER_THREAD; // 总请求量 10,000
 
     /**
-     * Redis 集群高并发性能基准测试 (Benchmark)
-     * <p>
-     * 实验目的:
-     * 1. 验证 Redis 集群在多线程并发场景下的稳定性与吞吐量 (TPS)。
-     * 2. 模拟真实业务流量，检测是否存在连接池瓶颈或路由错误。
-     * <p>
-     * 亮点设计 (面试加分项):
-     * 1. **真实并发**: 使用 ExecutorService + CountDownLatch 模拟“瞬时并发”，而非简单的单线程循环。
-     * 2. **数据隔离**: 使用 UUID 生成批次前缀，确保测试互不干扰，且无脏数据残留。
-     * 3. **精准度量**: 统计成功/失败数、计算 TPS (QPS) 及平均响应时间。
+     * Redis 集群高并发性能基准测试
+     *
+     * 实现逻辑：
+     * 1. 生成批次前缀并创建并发写入任务。
+     * 2. 并发读取并统计成功率与TPS。
+     * 3. 输出报告并清理测试数据。
+     *
+     * @throws InterruptedException 线程中断异常
      */
     @Test
     public void testClusterHighConcurrencyPerformance() throws InterruptedException {
+        // 实现思路：
+        // 1. 先写入后读取，分阶段统计性能指标。
         // 1. 数据准备
         String batchId = UUID.randomUUID().toString().substring(0, 8);
         String keyPrefix = "bench:" + batchId + ":";
-        String valuePayload = "data-" + UUID.randomUUID(); // 模拟固定大小的 Payload
+        String valuePayload = "data-" + UUID.randomUUID(); // 模拟固定大小的数据载荷
 
-        // 使用线程安全的 List 记录 Key，用于后续清理
+        // 使用线程安全的列表记录键，用于后续清理
         List<String> generatedKeys = Collections.synchronizedList(new ArrayList<>(TOTAL_REQUESTS));
 
         // 线程池与同步工具
@@ -61,16 +83,15 @@ public class RedisClusterPerformanceTest {
         AtomicInteger readSuccess = new AtomicInteger(0);
         AtomicInteger readFail = new AtomicInteger(0);
 
-        log.info("============================================================");
-        log.info(">>> Redis Cluster 高并发性能压测启动 <<<");
-        log.info(">>> 批次 ID: {}", batchId);
-        log.info(">>> 压测配置: {} 线程 x {} 请求 = {} 总请求", THREAD_COUNT, REQUESTS_PER_THREAD, TOTAL_REQUESTS);
-        log.info("============================================================");
+        log.info("Redis集群压测启动|Redis_cluster_benchmark_start");
+        log.info("批次ID|Batch_id,id={}", batchId);
+        log.info("压测配置|Benchmark_config,threads={},requestsPerThread={},totalRequests={}",
+                THREAD_COUNT, REQUESTS_PER_THREAD, TOTAL_REQUESTS);
 
         StopWatch stopWatch = new StopWatch("Redis Cluster Benchmark");
 
         try {
-            // ==================== 2. 并发写入测试 (Write Benchmark) ====================
+            // ==================== 2. 并发写入测试 ====================
             for (int i = 0; i < THREAD_COUNT; i++) {
                 final int threadIdx = i;
                 executor.submit(() -> {
@@ -84,7 +105,7 @@ public class RedisClusterPerformanceTest {
                                 writeSuccess.incrementAndGet();
                             } catch (Exception e) {
                                 writeFail.incrementAndGet();
-                                log.error("写入失败 Key: {}, 原因: {}", key, e.getMessage());
+                                log.error("写入失败|Write_fail,key={},reason={}", key, e.getMessage());
                             }
                         }
                     } catch (InterruptedException e) {
@@ -95,7 +116,7 @@ public class RedisClusterPerformanceTest {
                 });
             }
 
-            log.info(">>> [Phase 1] 正在进行并发写入测试...");
+            log.info("阶段1_并发写入|Phase1_concurrent_write_start");
             stopWatch.start("Write Phase");
             long writeStartTime = System.currentTimeMillis();
 
@@ -108,7 +129,7 @@ public class RedisClusterPerformanceTest {
             long writeDuration = writeEndTime - writeStartTime;
             double writeTps = (writeSuccess.get() / (double) writeDuration) * 1000;
 
-            // ==================== 3. 并发读取测试 (Read Benchmark) ====================
+            // ==================== 3. 并发读取测试 ====================
             // 重置发令枪
             CountDownLatch readStartLatch = new CountDownLatch(1);
 
@@ -138,7 +159,7 @@ public class RedisClusterPerformanceTest {
                 });
             }
 
-            log.info(">>> [Phase 2] 正在进行并发读取测试...");
+            log.info("阶段2_并发读取|Phase2_concurrent_read_start");
             stopWatch.start("Read Phase");
             long readStartTime = System.currentTimeMillis();
 
@@ -151,26 +172,17 @@ public class RedisClusterPerformanceTest {
             long readDuration = readEndTime - readStartTime;
             double readTps = (readSuccess.get() / (double) readDuration) * 1000;
 
-            // ==================== 4. 生成权威报告 ====================
-            log.info("============================================================");
-            log.info(">>> Redis Cluster 压测报告 (Benchmark Report) <<<");
-            log.info("------------------------------------------------------------");
-            log.info("【写入性能 (Write)】");
-            log.info("  - 总耗时    : {} ms", writeDuration);
-            log.info("  - 成功/失败 : {} / {}", writeSuccess.get(), writeFail.get());
-            log.info("  - TPS (QPS) : {}", String.format("%.2f", writeTps));
-            log.info("  - Avg Latency: {} ms", String.format("%.3f", (double) writeDuration / TOTAL_REQUESTS));
-            log.info("------------------------------------------------------------");
-            log.info("【读取性能 (Read)】");
-            log.info("  - 总耗时    : {} ms", readDuration);
-            log.info("  - 成功/失败 : {} / {}", readSuccess.get(), readFail.get());
-            log.info("  - TPS (QPS) : {}", String.format("%.2f", readTps));
-            log.info("  - Avg Latency: {} ms", String.format("%.3f", (double) readDuration / TOTAL_REQUESTS));
-            log.info("============================================================");
+            // ==================== 4. 生成压测报告 ====================
+            log.info("压测报告_写入|Write_report,costMs={},success={},fail={},tps={},avgLatencyMs={}",
+                    writeDuration, writeSuccess.get(), writeFail.get(),
+                    String.format("%.2f", writeTps), String.format("%.3f", (double) writeDuration / TOTAL_REQUESTS));
+            log.info("压测报告_读取|Read_report,costMs={},success={},fail={},tps={},avgLatencyMs={}",
+                    readDuration, readSuccess.get(), readFail.get(),
+                    String.format("%.2f", readTps), String.format("%.3f", (double) readDuration / TOTAL_REQUESTS));
 
         } finally {
-            // ==================== 5. 资源清理 (Teardown) ====================
-            log.info(">>> [Phase 3] 开始清理测试数据 ({} 条)...", generatedKeys.size());
+            // ==================== 5. 资源清理 ====================
+            log.info("阶段3_清理数据|Phase3_cleanup_start,count={}", generatedKeys.size());
             // 使用单线程清理即可，避免占用过多资源，且不计入压测时间
             for (String key : generatedKeys) {
                 try {
@@ -179,7 +191,7 @@ public class RedisClusterPerformanceTest {
                     // 忽略清理时的异常
                 }
             }
-            log.info(">>> 数据清理完成。");
+            log.info("数据清理完成|Cleanup_done");
             executor.shutdown();
         }
     }

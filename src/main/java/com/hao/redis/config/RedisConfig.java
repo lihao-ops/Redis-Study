@@ -21,14 +21,22 @@ import org.springframework.util.StringUtils;
 import java.time.Duration;
 
 /**
- * Redis 集群核心配置类
+ * Redis 集群配置类
  * <p>
- * 负责构建基于 Lettuce 的 Redis 连接工厂，并针对高并发场景（如秒杀压测）进行了深度调优。
- * 特别针对 Java 虚拟线程（Virtual Threads）环境，关闭了 Lettuce 的默认连接共享机制，
- * 确保能充分利用连接池中的多条物理 TCP 连接，打破网络带宽和延迟瓶颈。
+ * 类职责：
+ * 构建 Lettuce 连接工厂、模板与自定义客户端封装。
  *
- * @author hli
- * @version 1.0
+ * 设计目的：
+ * 1. 统一 Redis 连接与序列化配置，避免多处重复。
+ * 2. 面向高并发场景进行连接池与连接共享策略调优。
+ *
+ * 为什么需要该类：
+ * Redis 连接参数涉及稳定性与性能，集中配置便于压测与线上运维。
+ *
+ * 核心实现思路：
+ * - 读取 RedisProperties 组装集群与连接池配置。
+ * - 显式关闭连接共享以提高并发吞吐。
+ * - 启动时输出集群节点，便于健康校验。
  */
 @Slf4j
 @Configuration
@@ -37,21 +45,38 @@ public class RedisConfig {
 
     private final RedisProperties redisProperties;
 
+    /**
+     * Redis 配置构造方法
+     *
+     * 实现逻辑：
+     * 1. 注入 Spring Boot 的 RedisProperties。
+     *
+     * @param redisProperties Redis 配置属性
+     */
     public RedisConfig(RedisProperties redisProperties) {
+        // 实现思路：
+        // 1. 保留配置对象供后续构建连接工厂使用。
         this.redisProperties = redisProperties;
     }
 
     /**
-     * 创建并配置 Lettuce 连接工厂 (核心方法)
+     * 创建并配置 Lettuce 连接工厂
      * <p>
-     * 这里手动组装了集群配置、连接池配置和客户端配置。
-     * 关键优化点在于显式关闭了 {@code shareNativeConnection}，
-     * 强制开启多连接并行模式，适配虚拟线程的高吞吐特性。
+     * 这里手动组装集群配置、连接池配置和客户端配置，并针对高并发场景进行连接共享调优。
+     *
+     * 实现逻辑：
+     * 1. 读取并构建集群节点配置与连接池参数。
+     * 2. 构建 Lettuce 客户端配置并实例化连接工厂。
+     * 3. 关闭连接共享并初始化工厂。
      *
      * @return LettuceConnectionFactory 配置好的连接工厂
      */
     @Bean
     public LettuceConnectionFactory redisConnectionFactory() {
+        // 实现思路：
+        // 1. 组装集群与连接池参数。
+        // 2. 构建客户端配置并实例化连接工厂。
+        // 3. 调整连接共享策略并完成初始化。
         // --- 1. 配置 Redis 集群节点信息 ---
         // 从 application.yml 读取节点列表 (192.168.254.x:6401)
         RedisClusterConfiguration config = new RedisClusterConfiguration(redisProperties.getCluster().getNodes());
@@ -84,7 +109,7 @@ public class RedisConfig {
         Duration timeout = redisProperties.getTimeout() != null ? redisProperties.getTimeout() : Duration.ofSeconds(5);
 
         // --- 3. 构建 Lettuce 客户端配置 ---
-        // 使用 Pooling (池化) 模式构建配置
+        // 使用连接池模式构建配置
         LettuceClientConfiguration clientConfiguration = LettucePoolingClientConfiguration.builder()
                 .commandTimeout(timeout)
                 .poolConfig(poolConfig)
@@ -96,16 +121,16 @@ public class RedisConfig {
         // 开启连接校验，确保获取到的连接是可用的
         connectionFactory.setValidateConnection(true);
 
-        // 🔥🔥🔥🔥【核心性能优化】🔥🔥🔥🔥
-        // 默认值：true (开启共享)。开启时，Lettuce 会复用同一条物理 TCP 连接来发送所有命令（除非是事务/阻塞命令）。
-        // 性能瓶颈：在高并发下，这条单连接会成为物理瓶颈，TPS 被锁死在 2000-3000 左右。
-        // 优化方案：设置为 false (关闭共享)。
-        // 作用：配合连接池，强制让每个 Redis 操作都从池中获取一个独立的、独占的物理连接。
-        // 结果：如果有 1000 个连接，就能同时有 1000 个 TCP 通道在传输数据，吞吐量成倍提升！
+        // 核心性能优化：
+        // 默认值为 true（开启共享），会复用同一条物理 TCP 连接。
+        // 在高并发下单连接易成瓶颈，关闭共享可提升并发吞吐。
+        // 作用：配合连接池让每次操作获取独立物理连接。
+        // 结果：连接数与吞吐能力成正比提升。
+        // 核心代码：关闭连接共享
         connectionFactory.setShareNativeConnection(false);
         // 初始化工厂
         connectionFactory.afterPropertiesSet();
-        log.info("🚀 Redis Cluster 连接工厂创建完成 | 节点: {} | 连接池上限: {} | 共享连接模式: 关闭",
+        log.info("Redis集群连接工厂创建完成|Redis_cluster_factory_created,nodes={},poolMax={},shareNativeConnection=false",
                 redisProperties.getCluster().getNodes(),
                 poolConfig.getMaxTotal());
 
@@ -115,24 +140,39 @@ public class RedisConfig {
     /**
      * 配置 StringRedisTemplate
      * <p>
-     * 这是一个针对 String 类型优化的模板，Key 和 Value 都是 String 序列化。
+     * 这是一个针对 String 类型优化的模板，键和值都是 String 序列化。
      * 也是压测中最常用的模板。
+     *
+     * 实现逻辑：
+     * 1. 构建模板并注入连接工厂。
+     * 2. 初始化模板并输出日志确认。
      */
     @Bean
     public StringRedisTemplate stringRedisTemplate(LettuceConnectionFactory connectionFactory) {
+        // 实现思路：
+        // 1. 注入连接工厂并完成模板初始化。
         StringRedisTemplate template = new StringRedisTemplate();
         template.setConnectionFactory(connectionFactory);
-        // 初始化设置，确保所有组件加载完毕
+        // 核心代码：初始化模板确保依赖生效
         template.afterPropertiesSet();
-        log.info("✅ StringRedisTemplate 初始化完成");
+        log.info("StringRedisTemplate初始化完成|StringRedisTemplate_init_done");
         return template;
     }
 
     /**
      * 配置自定义的 RedisClient 封装类
+     *
+     * 实现逻辑：
+     * 1. 使用 StringRedisTemplate 构建客户端封装。
+     *
+     * @param stringRedisTemplate Redis 模板
+     * @return RedisClient 客户端封装
      */
     @Bean
     public com.hao.redis.integration.redis.RedisClient<String> redisClient(StringRedisTemplate stringRedisTemplate) {
+        // 实现思路：
+        // 1. 通过模板构建统一客户端封装。
+        // 核心代码：实例化客户端封装
         return new RedisClientImpl(stringRedisTemplate);
     }
 
@@ -141,25 +181,30 @@ public class RedisConfig {
      * <p>
      * 在 Spring 容器启动完成后，尝试连接 Redis 集群并打印所有可用节点。
      * 用于快速验证集群配置是否正确。
+     *
+     * 实现逻辑：
+     * 1. 获取集群连接并打印节点信息。
+     * 2. 捕获异常并记录失败原因。
      */
     @Bean
     public CommandLineRunner logClusterNodes(LettuceConnectionFactory factory) {
         return args -> {
+            // 实现思路：
+            // 1. 获取集群连接并输出节点信息。
+            // 2. 异常时记录错误信息。
             try {
                 // 获取集群连接对象
                 RedisClusterConnection connection = factory.getClusterConnection();
-                log.info("============================================================");
-                log.info(">>> 🎉 Redis Cluster 连接成功! 准备起飞... <<<");
+                log.info("Redis集群连接成功|Redis_cluster_connect_success");
 
                 // 获取并遍历所有节点信息
                 Iterable<RedisClusterNode> nodes = connection.clusterGetNodes();
                 for (RedisClusterNode node : nodes) {
-                    log.info(">>> 🌍 检测到集群节点: {}:{} (角色: {})",
+                    log.info("Redis集群节点信息|Redis_cluster_node_info,host={},port={},role={}",
                             node.getHost(), node.getPort(), node.getType());
                 }
-                log.info("============================================================");
             } catch (Exception e) {
-                log.error(">>> ❌ Redis Cluster 连接失败，请检查防火墙或配置: {} <<<", e.getMessage(), e);
+                log.error("Redis集群连接失败|Redis_cluster_connect_fail,error={}", e.getMessage(), e);
             }
         };
     }

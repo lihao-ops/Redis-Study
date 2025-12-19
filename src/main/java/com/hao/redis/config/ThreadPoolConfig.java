@@ -20,29 +20,27 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 线程池配置类 - 针对量化交易数据收集系统优化
+ * 线程池配置类
  *
- * @author hli
- * @program datacollector
- * @date 2025-06-04 19:24:56
- * @description 提供多种类型的线程池配置，满足不同业务场景需求
- * <p>
- * 配置策略说明：
- * 1. IO密集型任务：数据库操作、文件读写、网络请求等
- * 2. CPU密集型任务：数据计算、加密解密、图像处理等
- * 3. 混合型任务：既有IO又有CPU计算的复合任务
- * 4. 虚拟线程：Java 21+的轻量级线程，适合大量并发IO操作
- * <p>
- * 监控指标：
- * - 活跃线程数：executor.getActiveCount()
- * - 队列长度：executor.getThreadPoolExecutor().getQueue().size()
- * - 完成任务数：executor.getThreadPoolExecutor().getCompletedTaskCount()
- * - 拒绝任务数：通过自定义RejectedExecutionHandler统计
+ * 类职责：
+ * 提供多类型线程池配置，并统一管理生命周期与异步执行器。
+ *
+ * 设计目的：
+ * 1. 根据任务类型提供差异化线程池策略，提升吞吐与稳定性。
+ * 2. 统一线程池命名、拒绝策略与关闭流程，降低运维风险。
+ *
+ * 为什么需要该类：
+ * 不同负载特性需要不同线程池策略，集中配置可避免业务侧随意创建线程池导致资源耗尽。
+ *
+ * 核心实现思路：
+ * - 按任务类型配置线程池参数并注册为 Bean。
+ * - 维护线程池列表，应用关闭时统一优雅关闭。
+ * - 提供异步执行器与异常处理器，保障异步任务可观测性。
  */
-@Slf4j // Lombok注解：自动生成日志对象
-@RequiredArgsConstructor // Lombok注解：生成包含final字段的构造函数
-@EnableAsync // 启用Spring异步执行功能
-@Configuration // 标记为Spring配置类
+@Slf4j
+@RequiredArgsConstructor
+@EnableAsync
+@Configuration
 public class ThreadPoolConfig implements AsyncConfigurer {
 
     // 从配置文件读取队列容量，默认值200
@@ -83,23 +81,33 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * 假设IO等待时间50ms，CPU处理时间1ms，则：24 × (1 + 50/1) = 1224
      * 实际考虑系统开销和内存限制，设置为CPU核数的4-8倍
      *
+     * 实现逻辑：
+     * 1. 根据配置计算核心与最大线程数。
+     * 2. 设置队列容量与拒绝策略，保障高峰期可控。
+     * 3. 初始化线程池并纳入统一管理。
+     *
      * @return ThreadPoolTaskExecutor IO密集型线程池
      */
     @Bean("ioTaskExecutor")
     public ThreadPoolTaskExecutor ioTaskExecutor() {
-        log.info("初始化IO密集型线程池，CPU核数：{}", CPU_CORES);
+        // 实现思路：
+        // 1. 计算核心与最大线程数。
+        // 2. 配置队列与拒绝策略。
+        // 3. 初始化线程池并加入统一管理。
+        log.info("初始化IO密集型线程池|Init_io_thread_pool,cpuCores={}", CPU_CORES);
+        // 核心线程池实例
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         // 核心线程数：CPU核数 × 4，保证基础并发能力
         int corePoolSize = CPU_CORES * corePoolMultiplier;
         executor.setCorePoolSize(corePoolSize);
-        log.debug("IO线程池核心线程数设置为：{}", corePoolSize);
+        log.debug("IO线程池核心线程数设置|Io_thread_pool_core_size_set,coreSize={}", corePoolSize);
         // 最大线程数：CPU核数 × 8，处理突发流量
         int maxPoolSize = CPU_CORES * maxPoolMultiplier;
         executor.setMaxPoolSize(maxPoolSize);
-        log.debug("IO线程池最大线程数设置为：{}", maxPoolSize);
+        log.debug("IO线程池最大线程数设置|Io_thread_pool_max_size_set,maxSize={}", maxPoolSize);
         // 队列容量：设置较大队列，缓冲突发任务
         executor.setQueueCapacity(queueCapacity * 5); // 1000
-        log.debug("IO线程池队列容量设置为：{}", queueCapacity * 5);
+        log.debug("IO线程池队列容量设置|Io_thread_pool_queue_capacity_set,queueCapacity={}", queueCapacity * 5);
         // 线程存活时间：空闲线程超过此时间将被回收
         executor.setKeepAliveSeconds(keepAliveSeconds * 2); // 120秒
         // 线程名称前缀：便于日志追踪和问题定位
@@ -111,11 +119,11 @@ public class ThreadPoolConfig implements AsyncConfigurer {
         // 优雅关闭配置：等待任务完成后再关闭
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(60);
-        // 初始化线程池
+        // 核心代码：初始化线程池并注册
         executor.initialize();
         // 添加到管理列表
         executors.add(executor);
-        log.info("IO密集型线程池初始化完成 - 核心线程数：{}，最大线程数：{}，队列容量：{}",
+        log.info("IO密集型线程池初始化完成|Io_thread_pool_init_done,coreSize={},maxSize={},queueCapacity={}",
                 corePoolSize, maxPoolSize, queueCapacity * 5);
         return executor;
     }
@@ -132,11 +140,21 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * 计算公式：CPU核数 + 1
      * 避免线程数过多导致上下文切换开销
      *
+     * 实现逻辑：
+     * 1. 按 CPU 核数计算核心与最大线程数。
+     * 2. 设置较小队列容量避免堆积。
+     * 3. 初始化线程池并加入统一管理。
+     *
      * @return ThreadPoolTaskExecutor CPU密集型线程池
      */
     @Bean("cpuTaskExecutor")
     public ThreadPoolTaskExecutor cpuTaskExecutor() {
-        log.info("初始化CPU密集型线程池");
+        // 实现思路：
+        // 1. 以 CPU 核心数为基准配置线程数。
+        // 2. 保持较小队列以降低延迟。
+        // 3. 初始化并加入管理列表。
+        log.info("初始化CPU密集型线程池|Init_cpu_thread_pool");
+        // 核心线程池实例
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         // 核心线程数：CPU核数 + 1，充分利用CPU资源
         int corePoolSize = CPU_CORES + 1;
@@ -157,9 +175,10 @@ public class ThreadPoolConfig implements AsyncConfigurer {
         // 优雅关闭配置
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
+        // 核心代码：初始化线程池并注册
         executor.initialize();
         executors.add(executor);
-        log.info("CPU密集型线程池初始化完成 - 核心线程数：{}，最大线程数：{}，队列容量：{}",
+        log.info("CPU密集型线程池初始化完成|Cpu_thread_pool_init_done,coreSize={},maxSize={},queueCapacity={}",
                 corePoolSize, maxPoolSize, queueCapacity / 2);
         return executor;
     }
@@ -174,11 +193,21 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * <p>
      * 平衡IO和CPU需求的中间配置
      *
+     * 实现逻辑：
+     * 1. 以 CPU 核数为基准设置中等线程规模。
+     * 2. 配置中等队列容量与温和的拒绝策略。
+     * 3. 初始化线程池并加入统一管理。
+     *
      * @return ThreadPoolTaskExecutor 混合型线程池
      */
     @Bean("mixedTaskExecutor")
     public ThreadPoolTaskExecutor mixedTaskExecutor() {
-        log.info("初始化混合型线程池");
+        // 实现思路：
+        // 1. 以中等倍率计算线程数。
+        // 2. 配置队列与拒绝策略。
+        // 3. 初始化并加入管理列表。
+        log.info("初始化混合型线程池|Init_mixed_thread_pool");
+        // 核心线程池实例
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         // 核心线程数：CPU核数 × 2，平衡IO和CPU需求
         int corePoolSize = CPU_CORES * 2;
@@ -196,9 +225,10 @@ public class ThreadPoolConfig implements AsyncConfigurer {
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(45);
+        // 核心代码：初始化线程池并注册
         executor.initialize();
         executors.add(executor);
-        log.info("混合型线程池初始化完成 - 核心线程数：{}，最大线程数：{}，队列容量：{}",
+        log.info("混合型线程池初始化完成|Mixed_thread_pool_init_done,coreSize={},maxSize={},queueCapacity={}",
                 corePoolSize, maxPoolSize, queueCapacity * 2);
         return executor;
     }
@@ -216,18 +246,25 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * - 自动管理，无需手动配置线程数
      * - 适合高并发场景
      *
+     * 实现逻辑：
+     * 1. 尝试创建虚拟线程执行器。
+     * 2. 创建失败时回退到 IO 线程池。
+     *
      * @return Executor 虚拟线程执行器
      */
     @Bean("virtualThreadExecutor")
     public Executor virtualThreadExecutor() {
-        log.info("初始化虚拟线程执行器（需要Java 21+）");
+        // 实现思路：
+        // 1. 尝试创建虚拟线程执行器。
+        // 2. 异常时降级到 IO 线程池。
+        log.info("初始化虚拟线程执行器|Init_virtual_thread_executor,requireJava=21+");
         try {
             // 创建虚拟线程执行器
             Executor executor = Executors.newVirtualThreadPerTaskExecutor();
-            log.info("虚拟线程执行器初始化成功");
+            log.info("虚拟线程执行器初始化成功|Virtual_thread_executor_init_success");
             return executor;
         } catch (Exception e) {
-            log.warn("虚拟线程执行器初始化失败，可能是Java版本不支持：{}", e.getMessage());
+            log.warn("虚拟线程执行器初始化失败_回退普通线程池|Virtual_thread_executor_init_fail_fallback,reason={}", e.getMessage());
             // 降级到普通线程池
             return ioTaskExecutor();
         }
@@ -237,12 +274,17 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * 默认异步执行器
      * 实现AsyncConfigurer接口，为@Async注解提供默认线程池
      *
+     * 实现逻辑：
+     * 1. 指定 IO 密集型线程池作为默认异步执行器。
+     *
      * @return Executor 默认执行器
      */
     @Override
-    @Primary // 标记为主要的Bean
+    @Primary // 标记为主要组件
     public Executor getAsyncExecutor() {
-        log.info("配置默认异步执行器为IO密集型线程池");
+        // 实现思路：
+        // 1. 使用 IO 线程池作为默认异步执行器。
+        log.info("配置默认异步执行器|Default_async_executor_set,executor=ioTaskExecutor");
         return ioTaskExecutor();
     }
 
@@ -250,13 +292,20 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * 异步异常处理器
      * 处理@Async方法中未捕获的异常
      *
+     * 实现逻辑：
+     * 1. 捕获异步方法异常并记录日志。
+     * 2. 预留告警或通知扩展点。
+     *
      * @return AsyncUncaughtExceptionHandler 异常处理器
      */
     @Override
     public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
+        // 实现思路：
+        // 1. 统一记录异步异常。
+        // 2. 便于后续接入告警机制。
         return (ex, method, params) -> {
-            // 记录异常信息
-            log.error("异步方法执行异常 - 方法：{}，参数：{}，异常：{}",
+            // 核心代码：记录异步异常信息
+            log.error("异步方法执行异常|Async_method_error,method={},params={},error={}",
                     method.getName(), params, ex.getMessage(), ex);
             // 可以在这里添加告警通知、邮件发送等逻辑
             // 例如：alertService.sendAlert("异步任务执行失败", ex);
@@ -272,17 +321,26 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * - 交易信号计算
      * - 数据库批量操作
      *
+     * 实现逻辑：
+     * 1. 基于核数计算核心与最大线程数。
+     * 2. 设置队列与存活时间，兼顾稳定与吞吐。
+     * 3. 初始化线程池并加入统一管理。
+     *
      * @return ThreadPoolTaskExecutor 量化交易专用线程池
      */
     @Bean("quantTaskExecutor")
     public ThreadPoolTaskExecutor quantTaskExecutor() {
-        log.info("初始化量化交易专用线程池");
+        // 实现思路：
+        // 1. 依据历史压测数据设置线程规模。
+        // 2. 初始化线程池并纳入管理。
+        log.info("初始化量化交易线程池|Init_quant_thread_pool");
+        // 核心线程池实例
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         // 基于实测数据优化：24核CPU最优配置约为102线程
-        int corePoolSize = (int) (CPU_CORES * 4.25); // 102 for 24 cores
+        int corePoolSize = (int) (CPU_CORES * 4.25); // 24核机器约为102线程
         executor.setCorePoolSize(corePoolSize);
         // 最大线程数：避免性能断崖，设置为核心线程数的1.2倍
-        int maxPoolSize = (int) (corePoolSize * 1.2); // 120 for 24 cores
+        int maxPoolSize = (int) (corePoolSize * 1.2); // 24核机器约为120线程
         executor.setMaxPoolSize(maxPoolSize);
         // 队列容量：适中大小，平衡内存使用和任务缓冲
         executor.setQueueCapacity(queueCapacity);
@@ -296,9 +354,10 @@ public class ThreadPoolConfig implements AsyncConfigurer {
         // 优雅关闭：等待任务完成，避免数据不一致
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(180); // 3分钟等待时间
+        // 核心代码：初始化线程池并注册
         executor.initialize();
         executors.add(executor);
-        log.info("量化交易专用线程池初始化完成 - 核心线程数：{}，最大线程数：{}，队列容量：{}",
+        log.info("量化交易线程池初始化完成|Quant_thread_pool_init_done,coreSize={},maxSize={},queueCapacity={}",
                 corePoolSize, maxPoolSize, queueCapacity);
         return executor;
     }
@@ -306,37 +365,51 @@ public class ThreadPoolConfig implements AsyncConfigurer {
     /**
      * 应用关闭时的清理方法
      * 确保所有线程池优雅关闭
+     *
+     * 实现逻辑：
+     * 1. 遍历线程池列表并逐个关闭。
+     * 2. 超时未结束则强制关闭。
+     * 3. 记录关闭过程与异常信息。
      */
     @PreDestroy
     public void destroy() {
-        log.info("开始关闭所有线程池，总数：{}", executors.size());
+        // 实现思路：
+        // 1. 顺序关闭线程池。
+        // 2. 超时则强制终止。
+        log.info("开始关闭线程池|Thread_pool_shutdown_start,total={}", executors.size());
         for (ThreadPoolTaskExecutor executor : executors) {
             try {
                 String threadNamePrefix = executor.getThreadNamePrefix();
-                log.info("正在关闭线程池：{}", threadNamePrefix);
+                log.info("正在关闭线程池|Thread_pool_shutting_down,prefix={}", threadNamePrefix);
                 // 停止接收新任务
                 executor.shutdown();
                 // 等待现有任务完成
                 if (!executor.getThreadPoolExecutor().awaitTermination(30, TimeUnit.SECONDS)) {
-                    log.warn("线程池 {} 在30秒内未能正常关闭，强制关闭", threadNamePrefix);
+                    log.warn("线程池关闭超时_强制关闭|Thread_pool_shutdown_timeout_force_close,prefix={}", threadNamePrefix);
                     executor.getThreadPoolExecutor().shutdownNow();
                 }
-                log.info("线程池 {} 已成功关闭", threadNamePrefix);
+                log.info("线程池关闭完成|Thread_pool_shutdown_done,prefix={}", threadNamePrefix);
             } catch (Exception e) {
-                log.error("关闭线程池时发生异常：{}", e.getMessage(), e);
+                log.error("关闭线程池异常|Thread_pool_shutdown_error,error={}", e.getMessage(), e);
             }
         }
-        log.info("所有线程池关闭完成");
+        log.info("所有线程池关闭完成|All_thread_pools_shutdown_done");
     }
 
     /**
      * 获取线程池监控信息
      * 用于健康检查和性能监控
      *
+     * 实现逻辑：
+     * 1. 读取线程池核心指标。
+     * 2. 格式化为可读字符串返回。
+     *
      * @param executor 线程池执行器
      * @return String 监控信息
      */
     public String getExecutorInfo(ThreadPoolTaskExecutor executor) {
+        // 实现思路：
+        // 1. 获取线程池指标并拼接输出。
         ThreadPoolExecutor threadPool = executor.getThreadPoolExecutor();
         return String.format(
                 "线程池[%s] - 核心线程数:%d, 最大线程数:%d, 当前线程数:%d, 活跃线程数:%d, " +

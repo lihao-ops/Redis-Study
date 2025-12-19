@@ -27,6 +27,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 1. 业务解耦：将限流逻辑从业务代码中剥离，通过注解声明式使用。
  * 2. 多级防护：结合 Guava 单机限流（保护节点）与 Redis 分布式限流（保护下游），实现高可用架构。
  *
+ * 为什么需要该类：
+ * 限流是横切关注点，集中在切面中才能保证所有入口的一致性与可维护性。
+ *
  * 实现思路：
  * - 使用 Spring AOP @Around 环绕通知拦截目标方法。
  * - 解析注解中的 QPS 配置（支持动态配置）。
@@ -49,7 +52,7 @@ public class SimpleRateLimitAspect {
     private RedisRateLimiter redisRateLimiter;
 
     /**
-     * 记录已打印过的配置Key，防止重复打印，同时支持多个不同的配置Key
+     * 记录已打印过的配置键，防止重复打印，同时支持多个不同的配置键
      */
     private final Set<String> loggedProperties = ConcurrentHashMap.newKeySet();
 
@@ -57,7 +60,7 @@ public class SimpleRateLimitAspect {
      * 环绕通知处理限流逻辑
      *
      * 实现逻辑：
-     * 1. 获取请求 URI 作为限流资源 Key。
+     * 1. 获取请求 URI 作为限流资源键。
      * 2. 解析注解 QPS 参数。
      * 3. 调用限流器尝试获取令牌。
      * 4. 失败则记录日志并抛出异常，成功则放行。
@@ -70,17 +73,17 @@ public class SimpleRateLimitAspect {
     @Around("@annotation(limit)")
     public Object around(ProceedingJoinPoint point, SimpleRateLimit limit) throws Throwable {
         // 实现思路：
-        // 1. 获取请求URI与注解配置的QPS。
+        // 1. 获取请求路径与注解配置的QPS。
         // 2. 调用限流器进行检查。
         // 3. 失败抛出异常，成功放行。
 
-        // 获取请求路径作为限流 key
+        // 获取请求路径作为限流键
         String key = getRequestUri();
         double qps = parseQps(limit.qps());
 
         // 1. 第一道防线：单机限流 (Guava)
         // 无论配置何种类型，始终启用单机限流作为兜底。
-        // 作用：保护当前节点不被突发流量打垮，同时在 Redis 故障（Fail-Open）时提供最后一道防线。
+        // 作用：保护当前节点不被突发流量打垮，同时在 Redis 故障放行时提供最后一道防线。
         if (!rateLimiter.tryAcquire(key, qps)) {
             log.warn("单机限流拦截|Standalone_rate_limited,uri={},qps={}", key, qps);
             throw new RateLimitException(limit.message());
@@ -89,7 +92,7 @@ public class SimpleRateLimitAspect {
         // 2. 第二道防线：分布式限流 (Redis)
         // 作用：控制集群总流量，防止下游服务过载。
         if (limit.type() == SimpleRateLimit.LimitType.DISTRIBUTED) {
-            // 注意：RedisRateLimiter 内部已实现 Fail-Open（异常返回 true），保障可用性
+            // 注意：RedisRateLimiter 内部已实现故障放行（异常时返回true），保障可用性
             if (!redisRateLimiter.tryAcquire(key, (int) qps, 1)) {
                 log.warn("分布式限流拦截|Distributed_rate_limited,uri={},qps={}", key, qps);
                 throw new RateLimitException(limit.message());
@@ -152,14 +155,14 @@ public class SimpleRateLimitAspect {
      * 实现逻辑：
      * 1. 通过 RequestContextHolder 获取 ServletRequestAttributes。
      * 2. 提取 HttpServletRequest 对象。
-     * 3. 返回 RequestURI，若上下文缺失则返回 "unknown"。
+     * 3. 返回请求路径，若上下文缺失则返回 "unknown"。
      *
      * @return 请求 URI
      */
     private String getRequestUri() {
         // 实现思路：
-        // 1. 从 Spring 上下文获取 Request 对象。
-        // 2. 提取 URI，上下文缺失时返回 unknown。
+        // 1. 从 Spring 上下文获取请求对象。
+        // 2. 提取请求路径，上下文缺失时返回"unknown"。
 
         ServletRequestAttributes attributes =
                 (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();

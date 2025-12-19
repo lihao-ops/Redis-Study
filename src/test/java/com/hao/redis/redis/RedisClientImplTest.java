@@ -15,6 +15,27 @@ import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * RedisClient 实现测试
+ *
+ * 类职责：
+ * 验证 RedisClient 封装的常用命令行为是否正确。
+ *
+ * 测试目的：
+ * 1. 覆盖字符串、哈希、列表、集合、有序集合与通用命令。
+ * 2. 验证删除与过期逻辑正确性。
+ *
+ * 设计思路：
+ * - 使用随机前缀隔离测试数据。
+ * - 按数据结构分组验证核心命令。
+ *
+ * 为什么需要该类：
+ * RedisClient 是基础封装，任何错误都会影响业务层使用。
+ *
+ * 核心实现思路：
+ * - 每个测试用例覆盖一类数据结构。
+ * - 使用断言校验返回值与数据一致性。
+ */
 @SpringBootTest
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @Slf4j
@@ -25,32 +46,67 @@ class RedisClientImplTest {
 
     private String prefix;
 
+    /**
+     * 测试前置初始化
+     *
+     * 实现逻辑：
+     * 1. 生成随机前缀隔离测试数据。
+     */
     @BeforeEach
     void setUp() {
+        // 实现思路：
+        // 1. 生成随机前缀并记录日志。
         prefix = "test:redisclient:" + UUID.randomUUID() + ":";
-        log.info("开始测试，用例前缀: {}", prefix);
+        log.info("测试开始|Test_start,prefix={}", prefix);
     }
 
+    /**
+     * 测试后置清理
+     *
+     * 实现逻辑：
+     * 1. 删除当前前缀下的所有测试数据。
+     */
     @AfterEach
     void cleanUp() {
+        // 实现思路：
+        // 1. 删除当前前缀下的所有键。
         Set<String> keys = redisClient.keys(prefix + "*");
         if (!keys.isEmpty()) {
             redisClient.del(keys.toArray(new String[0]));
-            log.info("清理测试数据，删除 {} 个 key，前缀 {}", keys.size(), prefix);
+            log.info("清理测试数据|Cleanup_test_data,deleted={},prefix={}", keys.size(), prefix);
         } else {
-            log.info("无测试数据需要清理，前缀 {}", prefix);
+            log.info("无测试数据需清理|No_test_data_to_cleanup,prefix={}", prefix);
         }
     }
 
+    /**
+     * 生成带前缀的测试Key
+     *
+     * 实现逻辑：
+     * 1. 拼接统一前缀与业务后缀。
+     *
+     * @param name 后缀名称
+     * @return 组合后的 Key
+     */
     private String k(String name) {
+        // 实现思路：
+        // 1. 返回带前缀的完整键。
         return prefix + name;
     }
 
-    /** 验证字符串全部命令：set/setex/setnx/mset/mget/getset/exists/incr系列/decr系列/append/strlen/del，预期数据一致、计数正确。 */
+    /**
+     * 字符串命令验证
+     *
+     * 实现逻辑：
+     * 1. 覆盖写入、读取、自增、自减与删除等命令。
+     * 2. 校验返回结果与数据一致性。
+     */
     @Test
     @DisplayName("字符串命令全量")
     void testStringOps() {
-        log.info("【字符串】验证 set/setex/setnx/mset/mget/getset/incr/decr/append/strlen/del 全流程");
+        // 实现思路：
+        // 1. 执行字符串相关命令并断言结果。
+        log.info("字符串命令验证|String_ops_verify");
         redisClient.set(k("s1"), "v1");
         redisClient.setex(k("s2"), 20, "v2");
         assertTrue(redisClient.setnx(k("s3"), "v3"));
@@ -76,14 +132,22 @@ class RedisClientImplTest {
 
         Long removed = redisClient.del(k("s1"), k("s2"), k("s3"), k("m1"), k("m2"), k("counter"), k("floatCounter"), k("app"));
         assertEquals(8L, removed);
-        log.info("【字符串】删除完成，删除数量 {}", removed);
+        log.info("字符串删除完成|String_delete_done,deleted={}", removed);
     }
 
-    /** 验证哈希全部命令：hset/hsetnx/hget/hgetall/hmset/hmget/hkeys/hvals/hlen/hexists/hdel/hincrby/float，预期字段和值正确。 */
+    /**
+     * 哈希命令验证
+     *
+     * 实现逻辑：
+     * 1. 覆盖哈希写入、读取、计数与删除命令。
+     * 2. 校验字段与值的正确性。
+     */
     @Test
     @DisplayName("哈希命令全量")
     void testHashOps() {
-        log.info("【哈希】验证 HSET/HSETNX/HGET/HGETALL/HMSET/HMGET/HKEYS/HVALS/HLEN/HEXISTS/HDEL/HINCRBY/HINCRBYFLOAT");
+        // 实现思路：
+        // 1. 执行哈希相关命令并断言结果。
+        log.info("哈希命令验证|Hash_ops_verify");
         String key = k("hash");
         redisClient.hset(key, "name", "tom");
         assertFalse(redisClient.hsetnx(key, "name", "other"));
@@ -108,26 +172,34 @@ class RedisClientImplTest {
         assertEquals(values.size(), keys.size());
 
         assertEquals(1L, redisClient.hdel(key, "job"));
-        log.info("【哈希】字段和值检查通过，当前字段数 {}", redisClient.hlen(key));
+        log.info("哈希校验通过|Hash_verify_passed,fieldCount={}", redisClient.hlen(key));
     }
 
-    /** 验证列表全部命令：push/pop、阻塞 pop、索引读写、trim、remove、长度等，预期顺序与结果符合。 */
+    /**
+     * 列表命令验证
+     *
+     * 实现逻辑：
+     * 1. 覆盖入队、出队、索引与裁剪等命令。
+     * 2. 校验顺序与长度一致性。
+     */
     @Test
     @DisplayName("列表命令全量")
     void testListOps() {
-        log.info("【列表】验证 LPUSH/RPUSH/POP/阻塞POP/索引/裁剪/移除/搬移/长度");
+        // 实现思路：
+        // 1. 执行列表相关命令并断言结果。
+        log.info("列表命令验证|List_ops_verify");
         String key = k("list");
         String dst = k("list:dst");
 
-        redisClient.lpush(key, "c", "b", "a"); // list: a b c
-        redisClient.rpush(key, "d");           // a b c d
+        redisClient.lpush(key, "c", "b", "a"); // 列表内容：三个元素
+        redisClient.rpush(key, "d");           // 列表内容：新增一个元素
         assertEquals(Arrays.asList("a", "b", "c", "d"), redisClient.lrange(key, 0, -1));
 
         assertEquals("a", redisClient.lindex(key, 0));
         redisClient.lset(key, 0, "a1");
         assertEquals("a1", redisClient.lindex(key, 0));
 
-        redisClient.ltrim(key, 0, 2); // keep first 3
+        redisClient.ltrim(key, 0, 2); // 保留前三项
         assertEquals(Arrays.asList("a1", "b", "c"), redisClient.lrange(key, 0, -1));
 
         redisClient.lrem(key, 1, "b");
@@ -138,21 +210,30 @@ class RedisClientImplTest {
         assertEquals("tail", moved);
         assertEquals("tail", redisClient.lindex(dst, 0));
 
-        // prepare blocking pop (value already exists so不会等待)
+        // 准备阻塞弹出（已有值，不会等待）
         List<String> bl = redisClient.blpop(1, key);
         assertNotNull(bl);
         List<String> br = redisClient.brpop(1, dst);
         assertNotNull(br);
 
         assertEquals(redisClient.llen(key).longValue(), redisClient.lrange(key, 0, -1).size());
-        log.info("【列表】长度校验通过，llen={} rangeSize={}", redisClient.llen(key), redisClient.lrange(key, 0, -1).size());
+        log.info("列表长度校验通过|List_length_check_passed,llen={},rangeSize={}",
+                redisClient.llen(key), redisClient.lrange(key, 0, -1).size());
     }
 
-    /** 验证无序集合全部命令：添加/移除/成员检测/随机取/交并差及存储，预期集合结果正确且数量匹配。 */
+    /**
+     * 无序集合命令验证
+     *
+     * 实现逻辑：
+     * 1. 覆盖添加、移除、随机与交并差操作。
+     * 2. 校验集合内容与数量一致性。
+     */
     @Test
     @DisplayName("无序集合命令全量")
     void testSetOps() {
-        log.info("【Set】验证 SADD/SREM/SCARD/SISMEMBER/随机/SINTER/SUNION/SDIFF 及存储");
+        // 实现思路：
+        // 1. 执行集合相关命令并断言结果。
+        log.info("无序集合命令验证|Set_ops_verify");
         String k1 = k("set1");
         String k2 = k("set2");
         String dst = k("set:dst");
@@ -186,14 +267,23 @@ class RedisClientImplTest {
 
         Set<String> popped = redisClient.spop(k2, 1);
         assertTrue(popped.size() <= 1);
-        log.info("【Set】交并差及随机操作通过，set1={}, set2={}", redisClient.smembers(k1), redisClient.smembers(k2));
+        log.info("无序集合校验通过|Set_verify_passed,set1={},set2={}",
+                redisClient.smembers(k1), redisClient.smembers(k2));
     }
 
-    /** 验证有序集合全部命令：新增、范围/分数查询、排名、增删、交并集存储、弹出等，预期顺序与计数正确。 */
+    /**
+     * 有序集合命令验证
+     *
+     * 实现逻辑：
+     * 1. 覆盖新增、排名、范围查询与弹出操作。
+     * 2. 校验顺序与计数一致性。
+     */
     @Test
     @DisplayName("有序集合命令全量")
     void testZsetOps() {
-        log.info("【ZSet】验证 ZADD/范围与分数查询/排名/增删/交并集存储/弹出");
+        // 实现思路：
+        // 1. 执行有序集合相关命令并断言结果。
+        log.info("有序集合命令验证|Zset_ops_verify");
         String z1 = k("z1");
         String z2 = k("z2");
         String dst = k("z:dst");
@@ -215,15 +305,15 @@ class RedisClientImplTest {
         assertEquals(3L, redisClient.zcard(z1));
         assertEquals(3L, redisClient.zcount(z1, 10, 20));
 
-        assertEquals(1L, redisClient.zremrangeByScore(z1, 0, 12)); // remove u1(12)
+        assertEquals(1L, redisClient.zremrangeByScore(z1, 0, 12)); // 移除分数区间元素
         assertFalse(redisClient.zrange(z1, 0, -1).contains("u1"));
-        assertEquals(1L, redisClient.zremrangeByRank(z1, 0, 0)); // remove最小 u3
+        assertEquals(1L, redisClient.zremrangeByRank(z1, 0, 0)); // 移除最小排名元素
         assertEquals(1L, redisClient.zcard(z1));
 
         redisClient.zrem(z1, "u2");
         assertEquals(0L, redisClient.zcard(z1));
 
-        // pop and store tests
+        // 弹出与交并集存储测试
         redisClient.zadd(z1, Map.of("a", 1.0, "b", 2.0, "c", 3.0));
         Set<String> popMin = redisClient.zpopmin(z1, 1);
         assertTrue(popMin.contains("a"));
@@ -234,14 +324,22 @@ class RedisClientImplTest {
         Long unionStore = redisClient.zunionstore(dst + ":union", z1, z2);
         assertEquals(0L, interStore);
         assertTrue(unionStore > 0);
-        log.info("【ZSet】交并集存储完成，inter={}, union={}", interStore, unionStore);
+        log.info("有序集合交并集完成|Zset_union_inter_done,inter={},union={}", interStore, unionStore);
     }
 
-    /** 验证过期与通用命令：expire/expireAt/persist/ttl/type/rename/renamenx/keys，预期 TTL 变化与重命名正确。 */
+    /**
+     * 过期与通用命令验证
+     *
+     * 实现逻辑：
+     * 1. 覆盖过期、持久化与重命名操作。
+     * 2. 校验TTL变化与重命名结果。
+     */
     @Test
     @DisplayName("过期与通用命令全量")
     void testExpireAndCommon() {
-        log.info("【通用与过期】验证 expire/expireAt/persist/ttl/type/rename/renamenx/keys");
+        // 实现思路：
+        // 1. 执行过期与通用命令并断言结果。
+        log.info("通用与过期命令验证|Common_expire_ops_verify");
         String key = k("expire");
         redisClient.set(key, "1");
         assertTrue(redisClient.expire(key, 30));
@@ -263,6 +361,6 @@ class RedisClientImplTest {
         String newKey2 = k("renamed2");
         assertTrue(redisClient.renamenx(newKey, newKey2));
         assertTrue(redisClient.keys(prefix + "*").contains(newKey2));
-        log.info("【通用与过期】重命名与 TTL 校验通过，当前 keys={}", redisClient.keys(prefix + "*"));
+        log.info("通用与过期校验通过|Common_expire_verify_passed,keys={}", redisClient.keys(prefix + "*"));
     }
 }

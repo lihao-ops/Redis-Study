@@ -27,23 +27,26 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 微博系统高负载全链路集成测试 (High-Load End-to-End Test)
+ * 微博系统高负载全链路集成测试
  *
- * <p><strong>测试背景：</strong></p>
- * 模拟真实的高并发社交网络场景，验证 Redis 核心数据结构（String, Hash, List, ZSet, Set）
- * 在大数据量下的读写性能、排序准确性及业务逻辑的闭环。
+ * 类职责：
+ * 在真实 HTTP 链路下验证微博业务全流程与 Redis 数据结构行为。
  *
- * <p><strong>测试流程 (Test Scenario)：</strong></p>
- * <ol>
- * <li><strong>用户批量注册</strong>：模拟 {@code USER_COUNT} 个用户并发注册，验证 Global ID 生成器 (INCR) 和 Hash 存储。</li>
- * <li><strong>信息流轰炸 (Feed Blast)</strong>：模拟发布 {@code POST_COUNT} 条微博，计算写入 TPS，验证 List (LPUSH) 的写入性能。</li>
- * <li><strong>时间轴验证 (Timeline)</strong>：验证列表接口的分页能力和 LIFO (后进先出) 顺序，确保 List (LRANGE) 读取准确。</li>
- * <li><strong>制造热搜 (Viral Event)</strong>：人为制造“爆款”微博（全员点赞）和“次热门”微博，模拟 ZSet (ZINCRBY) 的并发更新。</li>
- * <li><strong>榜单校验 (Leaderboard)</strong>：验证全站热搜榜 Top 10，确保 ZSet (ZREVRANGE) 排序逻辑无误。</li>
- * <li><strong>流量审计 (UV check)</strong>：验证拦截器 + Set (SADD) 的去重统计功能。</li>
- * </ol>
+ * 测试目的：
+ * 1. 验证用户注册、发帖、时间轴与热搜榜流程闭环。
+ * 2. 验证 Redis String/Hash/List/ZSet/Set 在高负载下的正确性与性能。
+ * 3. 验证 UV 统计与拦截器逻辑是否生效。
  *
- * @author hli
+ * 设计思路：
+ * - 使用 MockMvc 模拟真实 HTTP 请求链路。
+ * - 分阶段执行注册、发帖、排行、UV 验证，并输出性能指标。
+ *
+ * 为什么需要该类：
+ * 全链路集成测试可覆盖多组件协作风险，避免单元测试遗漏关键路径。
+ *
+ * 核心实现思路：
+ * - 按阶段驱动请求并统计耗时与成功率。
+ * - 核验关键数据结构的顺序与正确性。
  */
 @Slf4j
 @SpringBootTest
@@ -60,34 +63,50 @@ public class WeiboSystemIntegrationTest {
     private ObjectMapper objectMapper;
 
     // ==========================================
-    // 定义测试规模 (Scale Configuration)
+    // 定义测试规模
     // ==========================================
     private static final int USER_COUNT = 100;    // 模拟用户数
     private static final int POST_COUNT = 10000;  // 模拟微博总数 (建议至少 1000 以体现性能)
 
     /**
      * 测试前置：环境清洗
+     *
+     * 实现逻辑：
+     * 1. 清理测试相关的 Redis 数据。
      */
     @BeforeEach
     public void setup() {
-        log.info("========== [Setup] 环境初始化：清理 Redis 脏数据 ==========");
+        // 实现思路：
+        // 1. 测试前清理历史数据，确保结果可重复。
+        log.info("测试前置清理|Test_setup_cleanup");
         clearAllTestData();
     }
 
     /**
      * 测试后置：数据回滚
+     *
+     * 实现逻辑：
+     * 1. 清理测试期间生成的数据。
      */
     @AfterEach
     public void tearDown() {
-        log.info("========== [Teardown] 测试结束：执行数据清理 ==========");
+        // 实现思路：
+        // 1. 测试后清理数据，避免污染后续测试。
+        log.info("测试后置清理|Test_teardown_cleanup");
         clearAllTestData();
     }
 
     /**
-     * 清理逻辑：移除所有测试相关的 Key
+     * 清理测试数据
+     *
+     * 实现逻辑：
+     * 1. 删除静态 Key。
+     * 2. 删除动态 Key 前缀集合。
      */
     private void clearAllTestData() {
-        // 1. 清理 Enum 定义的静态 Key
+        // 实现思路：
+        // 1. 清理静态键与动态键，保证测试数据隔离。
+        // 1. 清理枚举定义的静态键
         List<String> staticKeys = Arrays.asList(
                 RedisKeysEnum.TOTAL_UV.getKey(),
                 RedisKeysEnum.GLOBAL_USER_ID.getKey(),
@@ -98,7 +117,7 @@ public class WeiboSystemIntegrationTest {
         );
         redisTemplate.delete(staticKeys);
 
-        // 2. 清理动态 Key (User, Likes, UV-Daily)
+        // 2. 清理动态键（用户、点赞、每日访客）
         Set<String> userKeys = redisTemplate.keys("user:*");
         if (userKeys != null && !userKeys.isEmpty()) redisTemplate.delete(userKeys);
 
@@ -109,16 +128,30 @@ public class WeiboSystemIntegrationTest {
         if (uvKeys != null && !uvKeys.isEmpty()) redisTemplate.delete(uvKeys);
     }
 
+    /**
+     * 微博系统全链路高负载压测
+     *
+     * 实现逻辑：
+     * 1. 批量注册用户并统计耗时。
+     * 2. 批量发帖并验证时间轴顺序。
+     * 3. 制造热搜并校验排行榜排序。
+     * 4. 校验 UV 统计结果。
+     *
+     * @throws Exception 执行异常
+     */
     @Test
     @DisplayName("微博系统压力测试：100用户/1万微博/热搜模拟")
     public void testWeiboHighLoadFlow() throws Exception {
-        log.info("🚀 开始执行高负载全链路测试 (规模: 用户={}, 微博={})", USER_COUNT, POST_COUNT);
+        // 实现思路：
+        // 1. 按阶段执行全链路压测。
+        // 2. 记录耗时与结果指标。
+        log.info("全链路压测开始|End_to_end_stress_start,userCount={},postCount={}", USER_COUNT, POST_COUNT);
 
         // ==================================================================================
-        // 步骤 1: 批量注册用户
-        // 验证点：String (INCR), Hash (HMSET)
+        // 步骤1：批量注册用户
+        // 验证点：字符串发号器与哈希存储
         // ==================================================================================
-        log.info("Step 1: 正在批量注册 {} 个用户...", USER_COUNT);
+        log.info("步骤1_批量注册用户|Step1_batch_register_users,count={}", USER_COUNT);
         List<String> userIds = new ArrayList<>();
         long regStart = System.currentTimeMillis();
 
@@ -135,13 +168,13 @@ public class WeiboSystemIntegrationTest {
         double regTps = (double) USER_COUNT / ((regEnd - regStart) / 1000.0);
 
         assertEquals(USER_COUNT, userIds.size());
-        log.info(">>> [性能报告] 用户注册完成 | 耗时: {} ms | TPS: {}", (regEnd - regStart), String.format("%.2f", regTps));
+        log.info("性能报告_注册完成|Register_report,costMs={},tps={}", (regEnd - regStart), String.format("%.2f", regTps));
 
         // ==================================================================================
-        // 步骤 2: 批量发布微博 (核心写性能测试)
-        // 验证点：String (INCR), Hash (HSET), List (LPUSH)
+        // 步骤2：批量发布微博
+        // 验证点：发号器、详情哈希、时间轴列表
         // ==================================================================================
-        log.info("Step 2: 正在批量发布 {} 条微博 (模拟信息流轰炸)...", POST_COUNT);
+        log.info("步骤2_批量发布微博|Step2_batch_publish_posts,count={}", POST_COUNT);
         List<String> postIds = new ArrayList<>();
         Random random = new Random();
 
@@ -151,7 +184,7 @@ public class WeiboSystemIntegrationTest {
             String authorId = userIds.get(random.nextInt(USER_COUNT));
 
             WeiboPost post = new WeiboPost();
-            post.setContent("LoadTest Post #" + i + " by User " + authorId + ". Redis is fast! 🚀");
+            post.setContent("压测微博#" + i + "_用户" + authorId + "_Redis高性能");
 
             MvcResult result = mockMvc.perform(post("/weibo/weibo")
                             .header("userId", authorId)
@@ -164,19 +197,19 @@ public class WeiboSystemIntegrationTest {
         long postEnd = System.currentTimeMillis();
         double postTps = (double) POST_COUNT / ((postEnd - postStart) / 1000.0);
 
-        log.info(">>> [性能报告] 发帖轰炸完成 | 耗时: {} ms | TPS: String.format(\"%.2f\", postTps)", (postEnd - postStart));
+        log.info("性能报告_发帖完成|Post_publish_report,costMs={},tps={}", (postEnd - postStart), String.format("%.2f", postTps));
 
-        // 验证：最新发布的一条微博ID应该是列表中最后一个
+        // 验证：最新发布的一条微博编号应该是列表中最后一个
         String lastCreatedPostId = postIds.get(postIds.size() - 1);
-        log.info(">>> 最新发布的微博 ID 是: {}", lastCreatedPostId);
+        log.info("最新微博ID|Latest_post_id,id={}", lastCreatedPostId);
 
 
         // ==================================================================================
-        // 步骤 3: 验证列表分页 (Timeline)
-        // 验证点：List (LRANGE), Hash (HGET)
-        // 预期：LIFO (后进先出)，第一条必须是刚刚发的最后一条
+        // 步骤3：验证时间轴分页
+        // 验证点：列表读取与详情哈希
+        // 预期：后进先出，第一条必须是最新发布
         // ==================================================================================
-        log.info("Step 3: 验证列表分页 (Timeline LIFO Logic)...");
+        log.info("步骤3_验证时间轴分页|Step3_verify_timeline");
 
         MvcResult listResult = mockMvc.perform(get("/weibo/weibo/list"))
                 .andExpect(status().isOk())
@@ -185,52 +218,52 @@ public class WeiboSystemIntegrationTest {
         String listJson = listResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         List<WeiboPost> timeline = objectMapper.readValue(listJson, new TypeReference<List<WeiboPost>>() {});
 
-        log.info(">>> 列表接口返回数据量: {}", timeline.size());
+        log.info("时间轴返回数量|Timeline_size,count={}", timeline.size());
 
-        // 断言 1: 默认分页限制 (假设 Controller 默认 limit=20)
-        assertEquals(20, timeline.size(), "Controller 默认应该只返回 20 条数据");
+        // 断言1：默认分页限制（假设控制层默认限制值为20）
+        assertEquals(20, timeline.size(), "控制层默认应该只返回20条数据");
 
-        // 断言 2: 时间轴顺序 (验证 List LPUSH 的特性)
+        // 断言2：时间轴顺序（验证列表后进先出特性）
         assertEquals(lastCreatedPostId, timeline.get(0).getPostId(), "列表首条必须是最新发布的微博");
 
-        // 断言 3: 内容完整性 (验证 Hash 详情查询)
-        assertNotNull(timeline.get(0).getContent(), "微博内容不应为空，说明 Hash 查询成功");
+        // 断言3：内容完整性（验证详情哈希查询）
+        assertNotNull(timeline.get(0).getContent(), "微博内容不应为空，说明哈希查询成功");
 
 
         // ==================================================================================
-        // 步骤 4: 制造热搜 (Viral Event Simulation)
-        // 场景：让第 50 条微博成为"爆款" (All Users Like)，第 80 条成为"亚军" (5 Users Like)
-        // 验证点：ZSet (ZINCRBY), Set (SADD 去重)
+        // 步骤4：制造热搜事件
+        // 场景：第50条成为爆款，第80条成为亚军
+        // 验证点：有序集合加分与去重集合
         // ==================================================================================
-        String viralPostId = postIds.get(49); // 取第 50 条 (index 49)
-        log.info("Step 4: 制造热搜事件！目标微博 ID: {}", viralPostId);
+        String viralPostId = postIds.get(49); // 取第50条
+        log.info("步骤4_制造热搜事件|Step4_create_viral_event,postId={}", viralPostId);
 
         long likeStart = System.currentTimeMillis();
-        // 1. 让所有注册用户给 viralPostId 点赞
+        // 1. 让所有注册用户给爆款微博点赞
         for (String userId : userIds) {
             mockMvc.perform(post("/weibo/weibo/" + viralPostId + "/like")
                             .header("userId", userId))
                     .andExpect(status().isOk());
         }
-        log.info(">>> 已模拟 {} 个用户给微博 {} 点赞", userIds.size(), viralPostId);
+        log.info("爆款点赞完成|Viral_like_done,userCount={},postId={}", userIds.size(), viralPostId);
 
-        // 2. 制造一个"亚军"，给第 80 条微博点 5 个赞
+        // 2. 制造亚军，给第80条微博点5个赞
         String secondPostId = postIds.get(79);
         for (int i = 0; i < 5; i++) {
             mockMvc.perform(post("/weibo/weibo/" + secondPostId + "/like")
                             .header("userId", userIds.get(i)))
                     .andExpect(status().isOk());
         }
-        log.info(">>> 已模拟 5 个用户给微博 {} 点赞 (亚军)", secondPostId);
-        log.info(">>> 点赞造势耗时: {} ms", (System.currentTimeMillis() - likeStart));
+        log.info("亚军点赞完成|Runner_up_like_done,postId={},likeCount={}", secondPostId, 5);
+        log.info("点赞耗时|Like_duration,costMs={}", (System.currentTimeMillis() - likeStart));
 
 
         // ==================================================================================
-        // 步骤 5: 验证全站热搜榜 (Leaderboard)
-        // 验证点：ZSet (ZREVRANGE) 排序算法
-        // 预期：第一名必须是 viralPostId (100分)，第二名是 secondPostId (5分)
+        // 步骤5：验证热搜排行榜排序
+        // 验证点：有序集合降序排序
+        // 预期：第一名为爆款微博，第二名为亚军微博
         // ==================================================================================
-        log.info("Step 5: 验证热搜排行榜排序...");
+        log.info("步骤5_验证热搜排序|Step5_verify_rank");
 
         MvcResult rankResult = mockMvc.perform(get("/weibo/weibo/rank"))
                 .andExpect(status().isOk())
@@ -239,34 +272,34 @@ public class WeiboSystemIntegrationTest {
         String rankJson = rankResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
         List<WeiboPost> hotRank = objectMapper.readValue(rankJson, new TypeReference<List<WeiboPost>>() {});
 
-        // 打印前三名 ID
+        // 打印前三名编号
         String rank1 = hotRank.isEmpty() ? "null" : hotRank.get(0).getPostId();
         String rank2 = hotRank.size() < 2 ? "null" : hotRank.get(1).getPostId();
         String rank3 = hotRank.size() < 3 ? "null" : hotRank.get(2).getPostId();
-        log.info(">>> 热搜榜 Top 3 ID: [1st={}] [2nd={}] [3rd={}]", rank1, rank2, rank3);
+        log.info("热搜榜前三|Hot_rank_top3,first={},second={},third={}", rank1, rank2, rank3);
 
-        // 断言 1: 冠军归属 (应该有 100 个赞)
+        // 断言1：冠军归属（应该有100个赞）
         assertEquals(viralPostId, rank1, "热搜第一名必须是获得全员点赞的那条微博");
 
-        // 断言 2: 亚军归属 (应该有 5 个赞)
+        // 断言2：亚军归属（应该有5个赞）
         assertEquals(secondPostId, rank2, "热搜第二名必须是获得5个赞的那条微博");
 
-        // 断言 3: 榜单长度 (只返回 Top 10)
-        assertTrue(hotRank.size() <= 10, "热搜榜接口应该最多返回 10 条");
+        // 断言3：榜单长度（仅返回前10条）
+        assertTrue(hotRank.size() <= 10, "热搜榜接口应该最多返回10条");
 
 
         // ==================================================================================
-        // 步骤 6: 验证系统 UV
-        // 验证点：Interceptor + Set (SADD)
+        // 步骤6：验证系统访客统计
+        // 验证点：拦截器与去重集合
         // ==================================================================================
-        log.info("Step 6: 验证系统 UV...");
+        log.info("步骤6_验证UV统计|Step6_verify_uv");
         MvcResult uvResult = mockMvc.perform(get("/weibo/system/uv")).andReturn();
         String uvStr = uvResult.getResponse().getContentAsString();
-        log.info(">>> 最终 UV 统计: {}", uvStr);
+        log.info("最终UV统计|Final_uv_count,uv={}", uvStr);
 
-        // 断言：拦截器应该正常工作，UV 不为 0
-        assertNotEquals("0", uvStr, "系统 UV 不应为 0");
+        // 断言：拦截器应该正常工作，访客数不为0
+        assertNotEquals("0", uvStr, "系统访客数不应为0");
 
-        log.info("✅ ✅ ✅ 高负载全链路集成测试通过！Redis 系统运行稳定。");
+        log.info("压测通过|Stress_test_passed");
     }
 }

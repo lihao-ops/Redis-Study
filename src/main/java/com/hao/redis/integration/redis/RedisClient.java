@@ -7,22 +7,28 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 统一的 Redis 客户端接口，覆盖 String/Hash/List/Set/Sorted Set(ZSet) 五大数据类型的常用命令，并包含过期控制与通用操作。
- * 数据类型与方法数量：
- * String(18)、
- * Hash(13)、
- * List(13)、
- * Set(15)、
- * Sorted Set/ZSet(19)、
- * 过期控制(4)、
- * 通用(4)。
+ * 统一 Redis 客户端接口
  *
- * @param <T> String 操作的值类型（如 String 或序列化后的对象）
+ * 类职责：
+ * 定义字符串、哈希、列表、集合、有序集合等常用命令的统一访问入口。
+ *
+ * 设计目的：
+ * 1. 屏蔽底层客户端差异，提供一致的调用语义。
+ * 2. 统一方法命名与参数校验口径，降低使用成本。
+ *
+ * 为什么需要该类：
+ * Redis 操作类型众多，缺少统一接口会导致调用分散且难以维护。
+ *
+ * 核心实现思路：
+ * - 按 Redis 数据类型分组定义方法。
+ * - 实现层负责参数校验与模板调用。
+ *
+ * @param <T> 字符串操作的值类型（如 String 或序列化后的对象）
  */
 @SuppressWarnings("all")
 public interface RedisClient<T> {
 
-    // region 字符串(String)
+    // 区域：字符串
 
     /**
      * 字符串 -> SET EX，写入并设置过期秒数。示例：SET user:1 "Tom" EX 60。
@@ -67,7 +73,7 @@ public interface RedisClient<T> {
     T getSet(String key, T value);
 
     /**
-     * 字符串 -> EXISTS，判断 key 是否存在。示例：EXISTS user:1。
+     * 字符串 -> EXISTS，判断键是否存在。示例：EXISTS user:1。
      */
     Boolean exists(String key);
 
@@ -109,22 +115,22 @@ public interface RedisClient<T> {
     Long strlen(String key);
 
     /**
-     * 字符串 -> DEL，删除单个 key。示例：DEL user:1。
+     * 字符串 -> DEL，删除单个键。示例：DEL user:1。
      *
-     * @return 删除的 key 数量（0/1）
+     * @return 删除的键数量（0/1）
      */
     Long del(String key);
 
     /**
-     * 字符串 -> DEL，删除多个 key。示例：DEL a b c。
+     * 字符串 -> DEL，删除多个键。示例：DEL a b c。
      *
-     * @return 删除的 key 数量
+     * @return 删除的键数量
      */
     Long del(String... keys);
 
-    // endregion
+    // 区域结束
 
-    // region 哈希(Hash)
+    // 区域：哈希
 
     /**
      * 哈希 -> HSET，设置字段。示例：HSET user:1 name "Tom"。
@@ -193,9 +199,9 @@ public interface RedisClient<T> {
      */
     Double hincrByFloat(String key, String field, double delta);
 
-    // endregion
+    // 区域结束
 
-    // region 列表(List)
+    // 区域：列表
 
     /**
      * 列表 -> LPUSH，左侧入队。示例：LPUSH queue a b。
@@ -220,14 +226,14 @@ public interface RedisClient<T> {
     /**
      * 列表 -> BLPOP，阻塞左出队。示例：BLPOP 5 queue。
      *
-     * @return [key, value]，超时返回 null
+     * @return 键值对，超时返回null
      */
     List<String> blpop(int timeoutSeconds, String... keys);
 
     /**
      * 列表 -> BRPOP，阻塞右出队。示例：BRPOP 5 queue。
      *
-     * @return [key, value]，超时返回 null
+     * @return 键值对，超时返回null
      */
     List<String> brpop(int timeoutSeconds, String... keys);
 
@@ -266,9 +272,9 @@ public interface RedisClient<T> {
      */
     Long llen(String key);
 
-    // endregion
+    // 区域结束
 
-    // region 无序集合(Set)
+    // 区域：无序集合
 
     /**
      * 无序集合 -> SADD，添加成员。示例：SADD tags a b。
@@ -355,9 +361,9 @@ public interface RedisClient<T> {
      */
     Long sdiffstore(String destination, String... keys);
 
-    // endregion 无序集合
+    // 区域结束：无序集合
 
-    // region 有序集合(Sorted Set/ZSet)
+    // 区域：有序集合
 
     /**
      * 有序集合 -> ZADD，批量新增成员。示例：ZADD rank 100 user1 200 user2。
@@ -459,46 +465,46 @@ public interface RedisClient<T> {
     Set<T> zpopmax(String key, long count);
 
     /**
-     * 有序集合 -> ZINTERSTORE，将多个有序集合的交集存入目标 key。示例：ZINTERSTORE dest 2 a b。
+     * 有序集合 -> ZINTERSTORE，将多个有序集合的交集存入目标键。示例：ZINTERSTORE dest 2 a b。
      *
      * @return 结果集成员数量
      */
     Long zinterstore(String destination, String... keys);
 
     /**
-     * 有序集合 -> ZUNIONSTORE，将多个有序集合的并集存入目标 key。示例：ZUNIONSTORE dest 2 a b。
+     * 有序集合 -> ZUNIONSTORE，将多个有序集合的并集存入目标键。示例：ZUNIONSTORE dest 2 a b。
      *
      * @return 结果集成员数量
      */
     Long zunionstore(String destination, String... keys);
 
-    // endregion 有序集合
+    // 区域结束：有序集合
 
-    // region 过期控制
+    // 区域：过期控制
 
     /**
-     * Key 过期 -> EXPIRE，设置秒级过期。示例：EXPIRE user:1 60。
+     * 键过期 -> EXPIRE，设置秒级过期。示例：EXPIRE user:1 60。
      */
     Boolean expire(String key, int seconds);
 
     /**
-     * Key 过期 -> EXPIREAT，按时间戳过期。示例：EXPIREAT user:1 1700000000。
+     * 键过期 -> EXPIREAT，按时间戳过期。示例：EXPIREAT user:1 1700000000。
      */
     Boolean expireAt(String key, long timestamp);
 
     /**
-     * Key 过期 -> PERSIST，移除过期时间。示例：PERSIST user:1。
+     * 键过期 -> PERSIST，移除过期时间。示例：PERSIST user:1。
      */
     Boolean persist(String key);
 
     /**
-     * Key 过期 -> TTL，查看剩余秒数。示例：TTL user:1。
+     * 键过期 -> TTL，查看剩余秒数。示例：TTL user:1。
      */
     Long ttl(String key);
 
-    // endregion
+    // 区域结束
 
-    // region 通用
+    // 区域：通用
 
     /**
      * 通用 -> TYPE，查看数据类型。示例：TYPE user:1。
@@ -516,14 +522,14 @@ public interface RedisClient<T> {
     Boolean renamenx(String oldKey, String newKey);
 
     /**
-     * 通用 -> KEYS，模式匹配列出 key（生产慎用）。示例：KEYS user:*。
+     * 通用 -> KEYS，模式匹配列出键（生产慎用）。示例：KEYS user:*。
      */
     Set<String> keys(String pattern);
 
     /**
-     * 通用 -> SCAN，迭代遍历 key。示例：SCAN 0 MATCH user:* COUNT 100。
+     * 通用 -> SCAN，迭代遍历键。示例：SCAN 0 MATCH user:* COUNT 100。
      */
     Cursor<String> scan(String pattern, long count);
 
-    // endregion
+    // 区域结束
 }
