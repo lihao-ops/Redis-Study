@@ -94,7 +94,8 @@ public class WeiboController {
      * @throws JsonProcessingException JSON 序列化异常
      */
     @PostMapping("/weibo")
-    @SimpleRateLimit(qps = RateLimitConstants.WEIBO_CREATE_QPS, type = SimpleRateLimit.LimitType.DISTRIBUTED)
+    @SimpleRateLimit(qps = "${rate.limit.weibo-create-qps:" + RateLimitConstants.WEIBO_CREATE_QPS + "}",
+            type = SimpleRateLimit.LimitType.DISTRIBUTED)
     public String createPost(@RequestHeader("userId") String userId, @RequestBody WeiboPost body) throws JsonProcessingException {
         // 实现思路：
         // 1. 直接委托服务层完成微博发布。

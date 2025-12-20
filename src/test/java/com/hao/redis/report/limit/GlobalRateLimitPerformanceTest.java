@@ -8,6 +8,7 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
@@ -78,6 +79,9 @@ public class GlobalRateLimitPerformanceTest {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
+    @Value("${rate.limit.global-qps:" + RateLimitConstants.GLOBAL_SERVICE_QPS + "}")
+    private int globalQps;
+
     private ExecutorService stressExecutor;
 
     /**
@@ -104,7 +108,7 @@ public class GlobalRateLimitPerformanceTest {
         checkEnvironment();
 
         // --- 1. 准备压测参数 ---
-        int limitQps = Integer.parseInt(RateLimitConstants.GLOBAL_SERVICE_QPS);
+        int limitQps = globalQps;
         int requestCount = limitQps * LOAD_FACTOR;
         // 客户端发压速率设置为限流阈值的 3 倍，确保能触发限流
         double clientLoadQps = limitQps * 3.0;

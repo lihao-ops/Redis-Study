@@ -1,6 +1,8 @@
 package com.hao.redis.common.util;
 
+import com.hao.redis.common.interceptor.SimpleRateLimiter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -16,7 +18,7 @@ import java.util.Collections;
  * 设计目的：
  * 1. 保证操作原子性：使用Lua脚本封装“INCR+EXPIRE+校验”逻辑，避免并发竞态。
  * 2. 降低网络开销：将多次Redis交互合并为一次网络请求。
- * 3. 提供容错机制：当Redis不可用时，自动降级为“允许通过”，防止限流组件成为系统瓶颈。
+ * 3. 提供容错机制：当Redis不可用时，自动降级为本地保守限流，避免异常时完全放行。
  *
  * 为什么需要该类：
  * 分布式限流必须具备原子性与高可用特性，独立封装可降低业务侵入。
@@ -24,7 +26,7 @@ import java.util.Collections;
  * 实现思路：
  * - 采用计数器固定窗口算法。
  * - 通过 Lua 脚本在 Redis 端原子执行计数与过期时间设置。
- * - 捕获 Redis 执行异常，默认执行故障放行策略。
+ * - 捕获 Redis 执行异常，默认执行本地保守限流降级策略。
  */
 @Slf4j
 @Component
@@ -32,6 +34,8 @@ public class RedisRateLimiter {
 
     private final StringRedisTemplate stringRedisTemplate;
     private final DefaultRedisScript<Long> limitScript;
+    private final SimpleRateLimiter fallbackRateLimiter;
+    private final double redisFallbackRatio;
 
     // Lua 脚本：固定窗口计数器
     // KEYS[1]: 限流键
@@ -59,10 +63,14 @@ public class RedisRateLimiter {
      *
      * @param stringRedisTemplate Redis 模板
      */
-    public RedisRateLimiter(StringRedisTemplate stringRedisTemplate) {
+    public RedisRateLimiter(StringRedisTemplate stringRedisTemplate,
+                            SimpleRateLimiter fallbackRateLimiter,
+                            @Value("${rate.limit.redis-fallback-ratio:0.5}") double redisFallbackRatio) {
         // 实现思路：
         // 1. 注入模板并完成脚本初始化。
         this.stringRedisTemplate = stringRedisTemplate;
+        this.fallbackRateLimiter = fallbackRateLimiter;
+        this.redisFallbackRatio = normalizeFallbackRatio(redisFallbackRatio);
         // 初始化 Lua 脚本
         this.limitScript = new DefaultRedisScript<>();
         this.limitScript.setScriptText(LUA_SCRIPT_TEXT);
@@ -108,9 +116,80 @@ public class RedisRateLimiter {
             // 实现思路：
             // 1. 捕获 Redis 连接超时、读写失败等异常。
             // 2. 记录错误日志，保留现场信息。
-            // 3. 执行故障放行策略（返回true），优先保证业务可用性，牺牲部分限流保护。
-            log.error("Redis限流服务异常_触发自动降级_允许通过|Redis_limiter_error_fallback_allow,key={},error={}", key, e.getMessage(), e);
-            return true;
+            // 3. 降级到本地保守限流，避免异常时完全放行。
+            log.error("Redis限流服务异常_触发本地降级|Redis_limiter_error_fallback_to_local,key={},error={}", key, e.getMessage(), e);
+            double fallbackQps = calculateFallbackQps(limit);
+            boolean allowed = fallbackRateLimiter.tryAcquire(buildFallbackKey(key), fallbackQps);
+            if (!allowed) {
+                log.warn("Redis限流异常_本地降级拦截|Redis_limiter_error_local_block,key={},fallbackQps={}",
+                        key, formatQps(fallbackQps));
+            }
+            return allowed;
         }
+    }
+
+    /**
+     * 计算降级QPS
+     *
+     * 实现逻辑：
+     * 1. 按比例下调限流阈值。
+     * 2. 兜底为正数，避免非法速率。
+     *
+     * @param limit 原始阈值
+     * @return 降级QPS
+     */
+    private double calculateFallbackQps(int limit) {
+        // 实现思路：
+        // 1. 按比例计算保守阈值。
+        double fallbackQps = limit * redisFallbackRatio;
+        return fallbackQps > 0 ? fallbackQps : 0.1D;
+    }
+
+    /**
+     * 构造降级限流键
+     *
+     * 实现逻辑：
+     * 1. 使用固定前缀区分降级限流器。
+     *
+     * @param key 业务键
+     * @return 降级限流键
+     */
+    private String buildFallbackKey(String key) {
+        // 实现思路：
+        // 1. 前缀隔离降级限流键。
+        return "redis_fallback:" + key;
+    }
+
+    /**
+     * 规整降级比例
+     *
+     * 实现逻辑：
+     * 1. 保证比例在(0,1]范围内。
+     *
+     * @param ratio 配置比例
+     * @return 规整后的比例
+     */
+    private double normalizeFallbackRatio(double ratio) {
+        // 实现思路：
+        // 1. 兜底为0.5，避免非法配置。
+        if (ratio > 0 && ratio <= 1) {
+            return ratio;
+        }
+        return 0.5D;
+    }
+
+    /**
+     * 格式化QPS
+     *
+     * 实现逻辑：
+     * 1. 保留两位小数，便于日志观察。
+     *
+     * @param qps QPS数值
+     * @return 格式化字符串
+     */
+    private String formatQps(double qps) {
+        // 实现思路：
+        // 1. 使用两位小数输出。
+        return String.format("%.2f", qps);
     }
 }

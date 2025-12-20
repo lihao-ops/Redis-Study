@@ -6,6 +6,7 @@ import com.hao.redis.common.interceptor.SimpleRateLimiter;
 import com.hao.redis.common.util.RedisRateLimiter;
 import jakarta.servlet.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -58,7 +59,10 @@ public class GlobalRateLimitFilter implements Filter {
     private RedisRateLimiter redisRateLimiter;
 
     private static final String GLOBAL_LIMIT_KEY = "global_service_limit";
-    private static final double QPS = Double.parseDouble(RateLimitConstants.GLOBAL_SERVICE_QPS);
+
+    // 从配置读取全局QPS，默认使用常量阈值
+    @Value("${rate.limit.global-qps:" + RateLimitConstants.GLOBAL_SERVICE_QPS + "}")
+    private double globalQps;
 
     /**
      * 全局限流拦截入口
@@ -82,16 +86,16 @@ public class GlobalRateLimitFilter implements Filter {
         // 3. 放行链路时保持最小副作用。
         // 1. 第一道防线：单机限流 (Guava)
         // 快速失败：如果当前节点负载过高，直接在内存中拒绝，避免浪费 Redis 资源。
-        if (!simpleRateLimiter.tryAcquire(GLOBAL_LIMIT_KEY, QPS)) {
-            log.warn("全局单机限流触发|Global_standalone_limit_triggered,qps={}", QPS);
+        if (!simpleRateLimiter.tryAcquire(GLOBAL_LIMIT_KEY, globalQps)) {
+            log.warn("全局单机限流触发|Global_standalone_limit_triggered,qps={}", globalQps);
             throw new RateLimitException("系统繁忙_单机限流");
         }
 
         // 2. 第二道防线：分布式限流 (Redis)
         // 全局协调：控制整个集群的总流量。
-        // 注意：RedisRateLimiter 内部已实现故障放行（异常时返回true），保障可用性。
-        if (!redisRateLimiter.tryAcquire(GLOBAL_LIMIT_KEY, (int) QPS, 1)) {
-            log.warn("全局分布式限流触发|Global_distributed_limit_triggered,qps={}", QPS);
+        // 注意：RedisRateLimiter 内部已实现本地保守限流降级，保障异常场景可用性。
+        if (!redisRateLimiter.tryAcquire(GLOBAL_LIMIT_KEY, (int) globalQps, 1)) {
+            log.warn("全局分布式限流触发|Global_distributed_limit_triggered,qps={}", globalQps);
             throw new RateLimitException("系统繁忙_集群限流");
         }
 

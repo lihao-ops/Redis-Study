@@ -13,6 +13,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+import org.springframework.web.servlet.HandlerMapping;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -57,10 +58,15 @@ public class SimpleRateLimitAspect {
     private final Set<String> loggedProperties = ConcurrentHashMap.newKeySet();
 
     /**
+     * 记录已提示过的动态路径模式，避免重复刷日志
+     */
+    private final Set<String> warnedKeyPatterns = ConcurrentHashMap.newKeySet();
+
+    /**
      * 环绕通知处理限流逻辑
      *
      * 实现逻辑：
-     * 1. 获取请求 URI 作为限流资源键。
+     * 1. 解析限流键（优先注解指定，其次使用请求匹配路径）。
      * 2. 解析注解 QPS 参数。
      * 3. 调用限流器尝试获取令牌。
      * 4. 失败则记录日志并抛出异常，成功则放行。
@@ -73,17 +79,17 @@ public class SimpleRateLimitAspect {
     @Around("@annotation(limit)")
     public Object around(ProceedingJoinPoint point, SimpleRateLimit limit) throws Throwable {
         // 实现思路：
-        // 1. 获取请求路径与注解配置的QPS。
+        // 1. 获取限流键与注解配置的QPS。
         // 2. 调用限流器进行检查。
         // 3. 失败抛出异常，成功放行。
 
-        // 获取请求路径作为限流键
-        String key = getRequestUri();
+        // 获取限流键
+        String key = resolveRateLimitKey(limit);
         double qps = parseQps(limit.qps());
 
         // 1. 第一道防线：单机限流 (Guava)
         // 无论配置何种类型，始终启用单机限流作为兜底。
-        // 作用：保护当前节点不被突发流量打垮，同时在 Redis 故障放行时提供最后一道防线。
+        // 作用：保护当前节点不被突发流量打垮，同时在 Redis 故障降级时提供最后一道防线。
         if (!rateLimiter.tryAcquire(key, qps)) {
             log.warn("单机限流拦截|Standalone_rate_limited,uri={},qps={}", key, qps);
             throw new RateLimitException(limit.message());
@@ -92,7 +98,7 @@ public class SimpleRateLimitAspect {
         // 2. 第二道防线：分布式限流 (Redis)
         // 作用：控制集群总流量，防止下游服务过载。
         if (limit.type() == SimpleRateLimit.LimitType.DISTRIBUTED) {
-            // 注意：RedisRateLimiter 内部已实现故障放行（异常时返回true），保障可用性
+            // 注意：RedisRateLimiter 内部已实现本地保守限流降级，保障异常场景可用性
             if (!redisRateLimiter.tryAcquire(key, (int) qps, 1)) {
                 log.warn("分布式限流拦截|Distributed_rate_limited,uri={},qps={}", key, qps);
                 throw new RateLimitException(limit.message());
@@ -150,26 +156,82 @@ public class SimpleRateLimitAspect {
     }
 
     /**
-     * 获取当前请求 URI
+     * 解析限流键
+     *
+     * 实现逻辑：
+     * 1. 优先读取注解中指定的限流键。
+     * 2. 读取请求匹配路径作为稳定限流键。
+     * 3. 无法获取路径时回退为请求URI或unknown。
+     *
+     * @param limit 限流注解
+     * @return 限流键
+     */
+    private String resolveRateLimitKey(SimpleRateLimit limit) {
+        // 实现思路：
+        // 1. 优先使用注解指定的键。
+        // 2. 尝试使用请求匹配路径。
+        // 3. 兜底使用请求URI。
+
+        String explicitKey = limit.key();
+        if (explicitKey != null && !explicitKey.trim().isEmpty()) {
+            return explicitKey.trim();
+        }
+
+        HttpServletRequest request = getCurrentRequest();
+        if (request == null) {
+            return "unknown";
+        }
+
+        String pattern = getBestMatchingPattern(request);
+        if (pattern != null) {
+            if (pattern.contains("{") && warnedKeyPatterns.add(pattern)) {
+                log.warn("限流键包含路径变量_建议显式指定|Rate_limit_key_contains_path_variable_suggest_explicit_key,pattern={}", pattern);
+            }
+            return pattern;
+        }
+
+        String requestUri = request.getRequestURI();
+        return requestUri != null ? requestUri : "unknown";
+    }
+
+    /**
+     * 获取当前请求对象
      *
      * 实现逻辑：
      * 1. 通过 RequestContextHolder 获取 ServletRequestAttributes。
-     * 2. 提取 HttpServletRequest 对象。
-     * 3. 返回请求路径，若上下文缺失则返回 "unknown"。
+     * 2. 返回 HttpServletRequest，缺失时返回 null。
      *
-     * @return 请求 URI
+     * @return 请求对象
      */
-    private String getRequestUri() {
+    private HttpServletRequest getCurrentRequest() {
         // 实现思路：
         // 1. 从 Spring 上下文获取请求对象。
-        // 2. 提取请求路径，上下文缺失时返回"unknown"。
 
         ServletRequestAttributes attributes =
                 (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (attributes != null) {
-            HttpServletRequest request = attributes.getRequest();
-            return request.getRequestURI();
+            return attributes.getRequest();
         }
-        return "unknown";
+        return null;
+    }
+
+    /**
+     * 获取请求匹配路径
+     *
+     * 实现逻辑：
+     * 1. 读取 Spring MVC 匹配路径属性。
+     * 2. 无匹配路径时返回 null。
+     *
+     * @param request 请求对象
+     * @return 匹配路径
+     */
+    private String getBestMatchingPattern(HttpServletRequest request) {
+        // 实现思路：
+        // 1. 获取请求匹配路径属性。
+        Object pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        if (pattern instanceof String) {
+            return (String) pattern;
+        }
+        return null;
     }
 }

@@ -25,6 +25,17 @@ import java.lang.annotation.*;
 public @interface SimpleRateLimit {
 
     /**
+     * 限流键
+     *
+     * 实现逻辑：
+     * 1. 为空时使用请求匹配路径作为限流键。
+     * 2. 显式设置可避免动态路径导致键膨胀。
+     *
+     * @return 限流键
+     */
+    String key() default "";
+
+    /**
      * 每秒允许的请求数（支持 ${property} 格式或直接数字）
      *
      * 实现逻辑：
