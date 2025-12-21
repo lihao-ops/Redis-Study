@@ -1,8 +1,8 @@
 package com.hao.redis;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hao.redis.common.enums.RedisKeysEnum;
+import com.hao.redis.common.util.JsonUtil;
 import com.hao.redis.dal.model.WeiboPost;
 
 import lombok.extern.slf4j.Slf4j;
@@ -58,9 +58,6 @@ public class WeiboSystemIntegrationTest {
 
     @Autowired
     private StringRedisTemplate redisTemplate;
-
-    @Autowired
-    private ObjectMapper objectMapper;
 
     // ==========================================
     // 定义测试规模
@@ -189,7 +186,8 @@ public class WeiboSystemIntegrationTest {
             MvcResult result = mockMvc.perform(post("/weibo/weibo")
                             .header("userId", authorId)
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(post)))
+                            // 优化：使用 JsonUtil
+                            .content(JsonUtil.toJson(post)))
                     .andExpect(status().isOk())
                     .andReturn();
             postIds.add(result.getResponse().getContentAsString());
@@ -216,7 +214,8 @@ public class WeiboSystemIntegrationTest {
                 .andReturn();
 
         String listJson = listResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        List<WeiboPost> timeline = objectMapper.readValue(listJson, new TypeReference<List<WeiboPost>>() {});
+        // 优化：使用 JsonUtil
+        List<WeiboPost> timeline = JsonUtil.toType(listJson, new TypeReference<List<WeiboPost>>() {});
 
         log.info("时间轴返回数量|Timeline_size,count={}", timeline.size());
 
@@ -270,7 +269,8 @@ public class WeiboSystemIntegrationTest {
                 .andReturn();
 
         String rankJson = rankResult.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        List<WeiboPost> hotRank = objectMapper.readValue(rankJson, new TypeReference<List<WeiboPost>>() {});
+        // 优化：使用 JsonUtil
+        List<WeiboPost> hotRank = JsonUtil.toType(rankJson, new TypeReference<List<WeiboPost>>() {});
 
         // 打印前三名编号
         String rank1 = hotRank.isEmpty() ? "null" : hotRank.get(0).getPostId();

@@ -161,6 +161,11 @@ public interface RedisClient<T> {
      * 哈希 -> HMGET，批量读字段。示例：HMGET user:1 name age。
      */
     List<T> hmget(String key, String... fields);
+    
+    /**
+     * 哈希 -> HMGET，批量读字段（List 参数重载）。示例：HMGET user:1 [name, age]。
+     */
+    List<T> hmget(String key, List<String> fields);
 
     /**
      * 哈希 -> HKEYS，列出字段名。示例：HKEYS user:1。

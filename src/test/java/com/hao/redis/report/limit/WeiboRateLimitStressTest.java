@@ -1,6 +1,6 @@
 package com.hao.redis.report.limit;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hao.redis.common.util.JsonUtil;
 import com.hao.redis.dal.model.WeiboPost;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.DisplayName;
@@ -48,9 +48,6 @@ public class WeiboRateLimitStressTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
-    private ObjectMapper objectMapper;
-
     /**
      * 微博发布接口分布式限流压测
      *
@@ -93,7 +90,8 @@ public class WeiboRateLimitStressTest {
                             int status = mockMvc.perform(post("/weibo/weibo")
                                             .header("userId", "1001")
                                             .contentType(MediaType.APPLICATION_JSON)
-                                            .content(objectMapper.writeValueAsString(post)))
+                                            // 优化：使用 JsonUtil
+                                            .content(JsonUtil.toJson(post)))
                                     .andReturn().getResponse().getStatus();
 
                             if (status == 200) successCount.incrementAndGet();

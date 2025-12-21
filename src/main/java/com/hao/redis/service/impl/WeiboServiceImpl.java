@@ -1,8 +1,9 @@
 package com.hao.redis.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hao.redis.common.constants.DateConstants;
 import com.hao.redis.common.enums.RedisKeysEnum;
+import com.hao.redis.common.util.JsonUtil;
 import com.hao.redis.dal.model.WeiboPost;
 import com.hao.redis.integration.redis.RedisClient;
 import com.hao.redis.service.WeiboService;
@@ -11,7 +12,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -38,9 +38,6 @@ public class WeiboServiceImpl implements WeiboService {
 
     @Autowired
     private RedisClient<String> redisClient;
-
-    @Autowired
-    private ObjectMapper objectMapper;
 
     /**
      * 注册新用户
@@ -128,13 +125,20 @@ public class WeiboServiceImpl implements WeiboService {
         // 补全对象属性
         body.setPostId(postId);
         body.setUserId(userId);
-        body.setCreateTime(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        // 优化：使用全局单例 DateTimeFormatter
+        body.setCreateTime(LocalDateTime.now().format(DateConstants.STANDARD_DATETIME_FORMATTER));
         // 核心代码：序列化微博内容
-        String objectValue = objectMapper.writeValueAsString(body);
+        // 优化：使用 JsonUtil 工具类
+        String objectValue = JsonUtil.toJson(body);
         // 核心代码：写入微博详情
         redisClient.hset(RedisKeysEnum.WEIBO_POST_INFO.getKey(), postId, objectValue);
-        // 核心代码：写入时间轴
-        redisClient.lpush(RedisKeysEnum.TIMELINE_KEY.getKey(), objectValue);
+        
+        // 优化：时间轴只存 postId，减少内存占用和网络传输
+        // 核心代码：写入时间轴 (仅存ID)
+        redisClient.lpush(RedisKeysEnum.TIMELINE_KEY.getKey(), postId);
+        // 优化：限制列表长度，防止无限增长 (保留最近 1000 条)
+        redisClient.ltrim(RedisKeysEnum.TIMELINE_KEY.getKey(), 0, 999);
+        
         return postId;
     }
 
@@ -142,26 +146,34 @@ public class WeiboServiceImpl implements WeiboService {
      * 获取最新动态列表
      *
      * 实现逻辑：
-     * 1. 读取时间轴列表。
-     * 2. 反序列化为微博对象并过滤异常数据。
+     * 1. 读取时间轴列表（仅ID）。
+     * 2. 批量获取微博详情。
+     * 3. 反序列化为微博对象并过滤异常数据。
      *
      * @return 最新微博列表
      */
     @Override
     public List<WeiboPost> listLatestPosts() {
         // 实现思路：
-        // 1. 读取时间轴列表。
-        // 2. 反序列化并过滤异常数据。
-        // 核心代码：读取时间轴
-        List<String> lrange = redisClient.lrange(RedisKeysEnum.TIMELINE_KEY.getKey(), 0, 19);
-        return lrange.stream()
+        // 1. 读取时间轴列表 (ID列表)。
+        // 2. 批量获取详情 (HMGET)。
+        // 3. 反序列化。
+        
+        // 核心代码：读取时间轴 ID 列表
+        List<String> postIds = redisClient.lrange(RedisKeysEnum.TIMELINE_KEY.getKey(), 0, 19);
+        if (postIds == null || postIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+        
+        // 优化：使用 HMGET 批量获取详情，避免 N+1 查询
+        // 注意：hmget 返回的是 List<String>，因为 RedisClient<String> 泛型是 String
+        List<String> postJsonList = redisClient.hmget(RedisKeysEnum.WEIBO_POST_INFO.getKey(), postIds);
+        
+        return postJsonList.stream()
+                .filter(Objects::nonNull)
                 .map(item -> {
-                    try {
-                        return objectMapper.readValue(item, WeiboPost.class);
-                    } catch (JsonProcessingException e) {
-                        log.error("微博内容解析失败|Weibo_content_parse_fail,item={}", item, e);
-                        return null;
-                    }
+                    // 优化：使用 JsonUtil 工具类，自动处理异常
+                    return JsonUtil.toBean(item, WeiboPost.class);
                 })
                 .filter(Objects::nonNull) // 过滤解析失败的数据
                 .toList();
@@ -191,7 +203,7 @@ public class WeiboServiceImpl implements WeiboService {
      *
      * 实现逻辑：
      * 1. 读取热搜榜 Top 10 的微博ID列表。
-     * 2. 组装微博详情列表返回。
+     * 2. 批量加载微博详情。
      *
      * @return 热搜榜列表
      */
@@ -199,14 +211,26 @@ public class WeiboServiceImpl implements WeiboService {
     public List<WeiboPost> getHotRank() {
         // 实现思路：
         // 1. 获取热搜榜ID列表。
-        // 2. 逐条加载微博详情。
-        List<WeiboPost> list = new ArrayList<>();
+        // 2. 批量加载微博详情 (HMGET)。
+        
         // 核心代码：读取热搜榜ID
-        Set<String> zrevrange = redisClient.zrevrange(RedisKeysEnum.HOT_RANK_KEY.getKey(), 0, 9);
-        for (String postId : zrevrange) {
-            list.add(getWeiboPost(postId));
+        Set<String> topPostIds = redisClient.zrevrange(RedisKeysEnum.HOT_RANK_KEY.getKey(), 0, 9);
+        if (topPostIds == null || topPostIds.isEmpty()) {
+            return Collections.emptyList();
         }
-        return list;
+        
+        // 优化：使用 HMGET 批量获取详情，避免 N+1 查询
+        // 注意：hmget 返回的是 List<String>
+        List<String> postJsonList = redisClient.hmget(RedisKeysEnum.WEIBO_POST_INFO.getKey(), new ArrayList<>(topPostIds));
+        
+        return postJsonList.stream()
+                .filter(Objects::nonNull)
+                .map(item -> {
+                    // 优化：使用 JsonUtil 工具类，自动处理异常
+                    return JsonUtil.toBean(item, WeiboPost.class);
+                })
+                .filter(Objects::nonNull)
+                .toList();
     }
 
     /**
@@ -227,12 +251,7 @@ public class WeiboServiceImpl implements WeiboService {
         if (postInfoStr == null) {
             return null;
         }
-        WeiboPost weiboPost = null;
-        try {
-            weiboPost = objectMapper.readValue(postInfoStr, WeiboPost.class);
-        } catch (JsonProcessingException e) {
-            log.error("微博详情解析失败|Weibo_detail_parse_fail,postId={}", postId, e);
-        }
-        return weiboPost;
+        // 优化：使用 JsonUtil 工具类
+        return JsonUtil.toBean(postInfoStr, WeiboPost.class);
     }
 }

@@ -1,5 +1,6 @@
 package com.hao.redis.common.interceptor;
 
+import com.hao.redis.common.constants.DateConstants;
 import com.hao.redis.common.enums.RedisKeysEnum;
 import com.hao.redis.integration.redis.RedisClient;
 import jakarta.servlet.http.HttpServletRequest;
@@ -10,7 +11,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 
 /**
  * 访问统计拦截器
@@ -35,8 +35,7 @@ public class VisitInterceptor implements HandlerInterceptor {
 
     @Autowired
     private RedisClient<String> redisClient;
-
-
+    
     /**
      * 拦截请求并统计 UV
      *
@@ -61,7 +60,8 @@ public class VisitInterceptor implements HandlerInterceptor {
 
         // 2. 生成今天的日期键，例如："uv:daily:2023-10-25"
         // 这样可以做到“每日去重”，同一个IP今天访问100次只算1个UV
-        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        // 优化：使用全局单例 DateTimeFormatter
+        String today = LocalDate.now().format(DateConstants.STANDARD_DATE_FORMATTER);
         String dailyIpSetKey = "uv:daily:" + today;
 
         // 3. 【核心逻辑】利用集合去重特性
@@ -73,8 +73,8 @@ public class VisitInterceptor implements HandlerInterceptor {
             // 4. 如果是新访客，给全站UV计数器+1
             redisClient.incr(RedisKeysEnum.TOTAL_UV.getKey());
 
-            // （可选）给当天的去重集合设置过期时间，比如2天后自动删除，节省内存
-            // redisClient.expire(dailyIpSetKey, 48 * 3600);
+            // 优化：设置过期时间，防止历史数据长期占用内存 (保留3天)
+            redisClient.expire(dailyIpSetKey, 3 * 24 * 3600);
             log.info("新访客UV计数+1|New_uv_increment,ip={}", clientIp);
         }
         // 5. 放行

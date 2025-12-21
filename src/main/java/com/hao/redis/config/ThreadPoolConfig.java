@@ -7,6 +7,7 @@ import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Primary;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.EnableAsync;
@@ -15,6 +16,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +69,9 @@ public class ThreadPoolConfig implements AsyncConfigurer {
 
     // 存储所有线程池实例，用于优雅关闭
     private final List<ThreadPoolTaskExecutor> executors = new ArrayList<>();
+    
+    // 存储虚拟线程执行器，用于优雅关闭
+    private ExecutorService virtualExecutorService;
 
     /**
      * IO密集型线程池配置
@@ -148,6 +153,7 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * @return ThreadPoolTaskExecutor CPU密集型线程池
      */
     @Bean("cpuTaskExecutor")
+    @Lazy // 懒加载，按需创建
     public ThreadPoolTaskExecutor cpuTaskExecutor() {
         // 实现思路：
         // 1. 以 CPU 核心数为基准配置线程数。
@@ -201,6 +207,7 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * @return ThreadPoolTaskExecutor 混合型线程池
      */
     @Bean("mixedTaskExecutor")
+    @Lazy // 懒加载，按需创建
     public ThreadPoolTaskExecutor mixedTaskExecutor() {
         // 实现思路：
         // 1. 以中等倍率计算线程数。
@@ -260,7 +267,9 @@ public class ThreadPoolConfig implements AsyncConfigurer {
         log.info("初始化虚拟线程执行器|Init_virtual_thread_executor,requireJava=21+");
         try {
             // 创建虚拟线程执行器
-            Executor executor = Executors.newVirtualThreadPerTaskExecutor();
+            ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            // 保存引用以便关闭
+            this.virtualExecutorService = executor;
             log.info("虚拟线程执行器初始化成功|Virtual_thread_executor_init_success");
             return executor;
         } catch (Exception e) {
@@ -329,6 +338,7 @@ public class ThreadPoolConfig implements AsyncConfigurer {
      * @return ThreadPoolTaskExecutor 量化交易专用线程池
      */
     @Bean("quantTaskExecutor")
+    @Lazy // 懒加载，按需创建
     public ThreadPoolTaskExecutor quantTaskExecutor() {
         // 实现思路：
         // 1. 依据历史压测数据设置线程规模。
@@ -393,6 +403,22 @@ public class ThreadPoolConfig implements AsyncConfigurer {
                 log.error("关闭线程池异常|Thread_pool_shutdown_error,error={}", e.getMessage(), e);
             }
         }
+        
+        // 关闭虚拟线程执行器
+        if (virtualExecutorService != null && !virtualExecutorService.isShutdown()) {
+             try {
+                log.info("正在关闭虚拟线程执行器|Virtual_thread_executor_shutting_down");
+                virtualExecutorService.shutdown();
+                if (!virtualExecutorService.awaitTermination(30, TimeUnit.SECONDS)) {
+                    log.warn("虚拟线程执行器关闭超时_强制关闭|Virtual_thread_executor_shutdown_timeout_force_close");
+                    virtualExecutorService.shutdownNow();
+                }
+                log.info("虚拟线程执行器关闭完成|Virtual_thread_executor_shutdown_done");
+            } catch (Exception e) {
+                log.error("关闭虚拟线程执行器异常|Virtual_thread_executor_shutdown_error,error={}", e.getMessage(), e);
+            }
+        }
+
         log.info("所有线程池关闭完成|All_thread_pools_shutdown_done");
     }
 

@@ -185,6 +185,7 @@ public class RedisConfig {
      * 实现逻辑：
      * 1. 获取集群连接并打印节点信息。
      * 2. 捕获异常并记录失败原因。
+     * 3. 确保连接使用后关闭，防止泄露。
      */
     @Bean
     public CommandLineRunner logClusterNodes(LettuceConnectionFactory factory) {
@@ -192,9 +193,8 @@ public class RedisConfig {
             // 实现思路：
             // 1. 获取集群连接并输出节点信息。
             // 2. 异常时记录错误信息。
-            try {
-                // 获取集群连接对象
-                RedisClusterConnection connection = factory.getClusterConnection();
+            // 3. 使用 try-with-resources 自动关闭连接。
+            try (RedisClusterConnection connection = factory.getClusterConnection()) {
                 log.info("Redis集群连接成功|Redis_cluster_connect_success");
 
                 // 获取并遍历所有节点信息

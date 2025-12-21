@@ -76,6 +76,24 @@ public class RedisClientImpl implements RedisClient<String> {
             throw new IllegalArgumentException(name + " 不能为空");
         }
     }
+    
+    /**
+     * 校验集合参数
+     *
+     * 实现逻辑：
+     * 1. 判空并校验大小。
+     * 2. 不满足条件时抛出异常。
+     *
+     * @param collection 参数集合
+     * @param name 参数名称
+     */
+    private void validateCollection(Collection<?> collection, String name) {
+        // 实现思路：
+        // 1. 校验集合非空且大小大于 0。
+        if (collection == null || collection.isEmpty()) {
+            throw new IllegalArgumentException(name + " 不能为空");
+        }
+    }
 
     /**
      * 校验正数参数
@@ -372,6 +390,18 @@ public class RedisClientImpl implements RedisClient<String> {
         validateKey(key, "key");
         validateParams(fields, "fields");
         List<Object> vals = redisTemplate.opsForHash().multiGet(key, Arrays.asList(fields));
+        return vals.stream().map(v -> v != null ? v.toString() : null).collect(Collectors.toList());
+    }
+    
+    /** 哈希 -> HMGET：批量读字段（List 参数重载）。示例：HMGET user:1 [name, age]。 */
+    @Override
+    public List<String> hmget(String key, List<String> fields) {
+        // 实现思路：
+        // 1. 参数校验。
+        // 2. 调用 RedisTemplate 执行对应命令。
+        validateKey(key, "key");
+        validateCollection(fields, "fields");
+        List<Object> vals = redisTemplate.opsForHash().multiGet(key, new ArrayList<>(fields));
         return vals.stream().map(v -> v != null ? v.toString() : null).collect(Collectors.toList());
     }
 
