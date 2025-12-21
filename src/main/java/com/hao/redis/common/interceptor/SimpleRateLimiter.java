@@ -67,7 +67,7 @@ public class SimpleRateLimiter {
             // 或者直接放行。这里选择创建临时实例，尽可能保持限流语义。
             limiter = RateLimiter.create(qps);
         }
-        
+        //为了支持“配置中心热更新”场景，让系统在不重启的情况下，实时调整限流阈值。
         // 动态调整速率（使用Math.abs避免浮点数精度问题）
         if (Math.abs(limiter.getRate() - qps) > 0.0001) {
             limiter.setRate(qps);

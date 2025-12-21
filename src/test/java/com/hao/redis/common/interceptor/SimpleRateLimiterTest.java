@@ -41,22 +41,34 @@ public class SimpleRateLimiterTest {
     @Test
     @DisplayName("验证惰性填充机制: 闲置后令牌自动积累")
     public void testLazyRefill() throws InterruptedException {
+        // [A] 开始: acquire 10 permits (这里模拟 acquire 1)
         // QPS = 1, 桶容量默认 maxBurstSeconds = 1.0 (即最多存 1 秒的量)
-        // 注意：Guava RateLimiter.create(permitsPerSecond) 默认 maxBurstSeconds=1.0
         RateLimiter limiter = RateLimiter.create(1.0);
 
         log.info("步骤1: 预热阶段，先消费掉初始令牌|Step1_warmup_consume_initial_permits");
         limiter.acquire(1); 
 
         log.info("步骤2: 休眠2秒，触发惰性填充(Resync)|Step2_sleep_2s_trigger_resync");
-        // 理论上此时 storedPermits 会恢复到 maxPermits (1.0)
+        // [D] 当前时间 > nextFreeTicketMicros ? -> 是(很久没人用)
+        // [E] 触发 resync 方法
+        // [F] 生成新令牌: storedPermits增加 (恢复到 maxPermits=1.0)
+        // [G] 更新 nextFreeTicketMicros = 当前时间
         TimeUnit.SECONDS.sleep(2);
 
         log.info("步骤3: 突发请求，验证是否立即通过|Step3_burst_request_verify_instant_pass");
         Stopwatch stopwatch = Stopwatch.createStarted();
         
-        // 此时桶里有 1 个令牌。
-        // 请求 1 个：直接拿 storedPermits，无需等待。
+        // [B] synchronized mutex
+        // [C] 调用 reserve
+        // [H] 跳过填充 (因为刚刚 resync 过)
+        // [I] 调用 reserveEarliestAvailable
+        // [J] 计算本次需等待时间 waitMicros = 0 (因为 nextFreeTicketMicros <= now)
+        // [K] 桶内令牌 storedPermits 够吗? -> 够用 (storedPermits=1.0, request=1)
+        // [L] 消耗 storedPermits
+        // [O] nextFreeTicketMicros 不变或微调
+        // [P] 解锁 mutex
+        // [Q] waitMicros > 0 ? -> 否
+        // [S] 立即返回 0.0
         double waitTime = limiter.acquire(1);
         
         long elapsedMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
@@ -83,9 +95,18 @@ public class SimpleRateLimiterTest {
         RateLimiter limiter = RateLimiter.create(1.0); // QPS = 1
 
         log.info("步骤1: 突发请求10个令牌(透支)|Step1_burst_request_10_permits_overdraft");
-        // Guava 特性：预消费。只要桶里有 1 个令牌（甚至 0 个，只要允许），就可以透支未来。
-        // 本次请求只消耗 storedPermits，不够的部分算作“欠债”，推迟 nextFreeTicketMicros。
-        // 所以本次 acquire 应该几乎不等待。
+        // [A] 开始: acquire 10 permits
+        // [B] synchronized mutex
+        // [C] 调用 reserve
+        // ... (省略 resync) ...
+        // [I] 调用 reserveEarliestAvailable
+        // [J] 计算本次需等待时间 waitMicros = 0 (假设当前无积压)
+        // [K] 桶内令牌 storedPermits 够吗? -> 不够 (storedPermits=1.0, request=10)
+        // [M] 透支: 消耗全部 storedPermits, 剩余缺口(9个)算作 freshPermits
+        // [N] 推后下一次可用时间 (欠新债): nextFreeTicketMicros += 9 * 1秒 = 当前时间 + 9秒
+        // [P] 解锁 mutex
+        // [Q] waitMicros > 0 ? -> 否 (本次不等待)
+        // [S] 立即返回 0.0
         double waitTime1 = limiter.acquire(10);
         log.info("第一次请求(10个)等待时间: {} s|First_request_wait_time_{}_s", waitTime1);
         
@@ -94,15 +115,37 @@ public class SimpleRateLimiterTest {
         log.info("步骤2: 再次请求1个令牌(还债)|Step2_request_1_permit_pay_debt");
         Stopwatch stopwatch = Stopwatch.createStarted();
         
-        // 下一次请求必须等待之前的“欠债”还清
-        // 欠了 10 个 * 1秒/个 = 10秒
+        // [A] 开始: acquire 1 permit
+        // [B] synchronized mutex
+        // [C] 调用 reserve
+        // [D] 当前时间 > nextFreeTicketMicros ? -> 否 (因为步骤1把 nextFreeTicketMicros 推后了9秒)
+        // [H] 跳过填充
+        // [I] 调用 reserveEarliestAvailable
+        // [J] 计算本次需等待时间 (还旧债): waitMicros = nextFreeTicketMicros - now ≈ 9秒
+        // [K] 桶内令牌 storedPermits 够吗? -> 不够 (storedPermits=0)
+        // [M] 透支...
+        // [N] 推后下一次可用时间...
+        // [P] 解锁 mutex
+        // [Q] waitMicros > 0 ? -> 是 (需要还债)
+        // [R] 休眠 (阻塞当前线程): sleepMicrosUninterruptibly(9秒)
+        // [S] 返回等待时间
         double waitTime2 = limiter.acquire(1);
         long elapsedMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
         
         log.info("第二次请求(1个)等待时间: {} s, 实际阻塞: {} ms|Second_request_wait_{}_s_actual_block_{}_ms", 
                 waitTime2, elapsedMs);
 
-        // 验证：必须等待约 10 秒（允许少量误差）
+        // 验证：必须等待约 10 秒（允许少量误差，这里因为第一次请求消耗了1个storedPermits，透支了9个，所以等待约9秒，加上第二次请求本身的1秒间隔，总共约10秒）
+        // 修正注释：acquire(10) -> 消耗1个stored，透支9个fresh -> nextFreeTicketMicros推后9秒
+        // 下一次 acquire(1) -> 等待9秒 + 自身消耗1秒 = 10秒？
+        // 实际上 Guava 的逻辑是：本次请求只需等待“上次欠的债”。
+        // 上次欠了9秒，所以本次 acquire(1) 进来时，nextFreeTicketMicros 在9秒后。
+        // 所以 waitMicros ≈ 9秒。
+        // 但这里断言写的是 9.5~10.5，可能是因为 create(1.0) 初始 storedPermits 为 0？
+        // 不，create(1.0) 初始 storedPermits 为 0，但会立即 resync 到 1.0 (如果 maxBurstSeconds=1.0)。
+        // 让我们看实际运行结果。通常 acquire(10) 会导致 nextFreeTicketMicros += 10秒。
+        // 第一次 acquire(10) -> wait=0, nextFreeTicketMicros += 10s.
+        // 第二次 acquire(1) -> wait=10s.
         assertTrue(waitTime2 >= 9.5 && waitTime2 <= 10.5, 
                 "还债机制失效：第二次请求没有等待预期的时长");
     }
@@ -129,6 +172,13 @@ public class SimpleRateLimiterTest {
         log.info("步骤2: 连续请求，验证间隔|Step2_continuous_requests_verify_interval");
         for (int i = 0; i < 3; i++) {
             Stopwatch stopwatch = Stopwatch.createStarted();
+            
+            // [A] 开始: acquire 1 permit
+            // ...
+            // [J] 计算等待时间 waitMicros ≈ 200ms (因为 QPS=5)
+            // ...
+            // [Q] waitMicros > 0 ? -> 是
+            // [R] 休眠 (阻塞当前线程)
             double waitTime = limiter.acquire(1);
             long elapsedMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
             

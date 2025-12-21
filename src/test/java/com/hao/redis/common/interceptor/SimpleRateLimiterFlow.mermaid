@@ -1,0 +1,37 @@
+graph TD
+    Start("用户请求 tryAcquire(key, qps)") --> CacheCheck{"1. 检查本地缓存(Guava Cache)"}
+
+    %% 1. 获取限流器
+    CacheCheck -- "命中" --> GetLimiter["获取现有 RateLimiter"]
+    CacheCheck -- "未命中" --> CreateLimiter["触发 CacheLoader"]
+    CreateLimiter --> InitLimiter["RateLimiter.create(qps)<br/>初始化 storedPermits=0<br/>初始化 nextFreeTicket=now"]
+    InitLimiter --> PutCache["存入 Cache"]
+    PutCache --> GetLimiter
+
+    CacheCheck -- "异常" --> Fallback["Catch ExecutionException<br/>创建临时 RateLimiter 兜底"]
+    Fallback --> GetLimiter
+
+    %% 2. 动态调整
+    GetLimiter --> RateCheck{"2. 检查速率配置<br/>abs(oldRate - newRate) > 0.0001?"}
+    RateCheck -- "是(配置变更)" --> SetRate["limiter.setRate(qps)<br/>加锁 -> resync结算旧令牌 -> 更新间隔"]
+    SetRate --> TryAcquire
+    RateCheck -- "否(无变更)" --> TryAcquire
+
+    %% 3. 核心逻辑
+    TryAcquire["3. 调用 limiter.tryAcquire()"] --> Reserve{"计算等待时间<br/>reserveAndGetWaitLength"}
+
+    Reserve --> Lock["synchronized(mutex)"]
+    Lock --> Resync["resync(now)<br/>惰性填充: storedPermits += (now-next)/interval"]
+    Resync --> CalcWait["计算 waitMicros = max(0, nextFreeTicket - now)"]
+
+    CalcWait --> CheckWait{"waitMicros > 0 ?"}
+
+    %% 4. 结果判定 (非阻塞模式 tryAcquire(0))
+    CheckWait -- "是 (需要等待)" --> Fail("返回 false (限流)")
+    CheckWait -- "否 (无需等待)" --> Consume["扣减令牌 storedPermits -= 1<br/>或透支 nextFreeTicket += interval"]
+    Consume --> Success("返回 true (通过)")
+
+    %% 样式兼容
+    style Start fill:#e1f5fe
+    style Success fill:#c8e6c9
+    style Fail fill:#ffcdd2
