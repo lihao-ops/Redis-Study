@@ -118,7 +118,8 @@ public class RedisRateLimiter {
             // 2. 记录错误日志，保留现场信息。
             // 3. 降级到本地保守限流，避免异常时完全放行。
             log.error("Redis限流服务异常_触发本地降级|Redis_limiter_error_fallback_to_local,key={},error={}", key, e.getMessage(), e);
-            double fallbackQps = calculateFallbackQps(limit);
+            // 核心修复：根据 limit 和 window 计算正确的 QPS
+            double fallbackQps = calculateFallbackQps(limit, windowSeconds);
             boolean allowed = fallbackRateLimiter.tryAcquire(buildFallbackKey(key), fallbackQps);
             if (!allowed) {
                 log.warn("Redis限流异常_本地降级拦截|Redis_limiter_error_local_block,key={},fallbackQps={}",
@@ -136,12 +137,15 @@ public class RedisRateLimiter {
      * 2. 兜底为正数，避免非法速率。
      *
      * @param limit 原始阈值
+     * @param windowSeconds 时间窗口
      * @return 降级QPS
      */
-    private double calculateFallbackQps(int limit) {
+    private double calculateFallbackQps(int limit, int windowSeconds) {
         // 实现思路：
         // 1. 按比例计算保守阈值。
-        double fallbackQps = limit * redisFallbackRatio;
+        // 核心修复：QPS = 次数 / 时间
+        double originalQps = (windowSeconds > 0) ? (double) limit / windowSeconds : limit;
+        double fallbackQps = originalQps * redisFallbackRatio;
         return fallbackQps > 0 ? fallbackQps : 0.1D;
     }
 
