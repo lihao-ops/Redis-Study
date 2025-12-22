@@ -41,12 +41,13 @@ public class RedisRateLimiter {
     // KEYS[1]: 限流键
     // ARGV[1]: 限流阈值
     // ARGV[2]: 时间窗口(秒)
+    // 优化：增加 TTL 兜底校验，防止 Key 变为永不过期的僵尸 Key
     private static final String LUA_SCRIPT_TEXT =
             "local key = KEYS[1] " +
             "local limit = tonumber(ARGV[1]) " +
             "local window = tonumber(ARGV[2]) " +
             "local current = redis.call('INCR', key) " +
-            "if current == 1 then " +
+            "if current == 1 or redis.call('TTL', key) == -1 then " +
             "    redis.call('EXPIRE', key, window) " +
             "end " +
             "if current > limit then " +

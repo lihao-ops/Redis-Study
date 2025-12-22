@@ -1,30 +1,33 @@
-# 分布式限流：Redis + Lua 实现深度解析
+# 架构笔记：高可用分布式限流器 (Redis + Lua)
 
-> 本文档基于真实项目中的 `RedisRateLimiter` 实现，深入剖析基于 Redis 和 Lua 脚本构建的高性能分布式令牌桶限流方案。
+> 本文档遵循 `gemini.md` 规范，基于项目中的 `RedisRateLimiter` 实现，深度解析其设计思想、Lua 脚本逻辑与容错机制。
 
-## 1. 核心设计理念
+## 1. 组件设计解析
 
-### 1.1 为什么选择 Redis + Lua？
+### 1.1 类职责 (Class Responsibility)
 
-在分布式环境中，多个服务实例需要对同一个资源进行总流量控制，这就必须依赖一个共享的、集中的存储。Redis 因其高性能、单线程执行命令的特性，成为实现分布式锁和限流的理想选择。
+`RedisRateLimiter` 负责提供**集群级别**的、**强一致性**的流量控制能力。
 
-但是，单纯使用多个 Redis 命令（如 `GET` -> 计算 -> `SET`）来实现限流，会存在**竞态条件 (Race Condition)**。在高并发下，多个线程可能同时读取到旧的令牌数，导致限流结果不准确。
+### 1.2 设计目的 (Design Purpose)
 
-**Lua 脚本解决了这个问题**：
-*   **原子性 (Atomicity)**：Redis 会将整个 Lua 脚本作为一个**不可分割的整体**来执行，执行期间不会被其他任何命令打断。这从根本上保证了“读取、计算、写入”这一系列操作的原子性。
-*   **减少网络开销**：将多个命令打包成一个脚本发送给 Redis，减少了客户端与 Redis 之间的网络往返次数 (RTT)，在高频调用下性能优势明显。
+1.  **全局流量控制**：控制整个服务集群对某个资源的总访问频率，防止下游服务（如数据库、第三方 API）过载。
+2.  **原子性保障**：利用 Redis Lua 脚本的原子性，解决高并发下的“读取-计算-写入”竞态问题，确保计数准确。
+3.  **高可用容错**：设计了完善的**降级机制**。当 Redis 服务不可用时，能自动切换到本地保守限流，确保业务核心流程不中断。
 
-### 1.2 算法选型：固定窗口计数器
+### 1.3 为什么需要该类 (Why is it needed?)
 
-本项目采用的是**固定窗口计数器算法**，这是最简单高效的分布式限流实现。
+单机限流无法感知集群总流量。在微服务架构中，必须有一个中心化的组件来协调所有节点的访问速率，Redis 是实现这一目标的最佳选择。
 
-*   **原理**：
-    *   为每个限流 Key 维护一个计数器。
-    *   当第一个请求到达时，初始化计数器并设置过期时间（窗口大小）。
-    *   后续请求使计数器自增。
-    *   如果计数器超过阈值，则拒绝请求。
-*   **优势**：实现简单，内存占用极低（Redis 中只需维护一个 Key）。
-*   **劣势**：存在“临界突发”问题（即在窗口切换瞬间可能通过双倍流量），但在大多数业务场景下可接受。
+### 1.4 核心实现思路 (Core Implementation)
+
+1.  **算法选型**：采用**固定窗口计数器**算法。虽然简单，但其内存占用极低（仅需维护一个 Key），且通过 Lua 脚本执行效率极高，非常适合大规模分布式场景。
+2.  **Lua 脚本优化**：
+    *   **原子执行**：将 `INCR` 和 `EXPIRE` 打包执行，避免了并发导致的计数错误。
+    *   **僵尸 Key 防护**：在脚本中增加了 **TTL 兜底校验**。即使因极端情况导致 Key 丢失了过期时间，下一次请求也会自动补上，彻底消除了用户被永久封禁的风险。
+3.  **降级策略**：
+    *   捕获所有 Redis 执行异常。
+    *   一旦异常，立即调用 `fallbackRateLimiter`（基于 Guava 的单机限流器）。
+    *   使用独立的降级 Key 前缀（`redis_fallback:`）和按比例折算的 QPS，确保降级后的流量可控。
 
 ## 2. Lua 脚本源码深度解析
 
@@ -41,10 +44,10 @@ local window = tonumber(ARGV[2])          -- 时间窗口 (秒)
 -- 如果 key 不存在，会先初始化为 0 再加 1
 local current = redis.call('INCR', key)
 
--- 3. 设置过期时间 (仅在第一次创建时)
-if current == 1 then
-    -- 如果是该窗口内的第一个请求，设置过期时间
-    -- 这样 key 会在窗口结束后自动删除，实现窗口重置
+-- 3. 设置过期时间 (包含僵尸 Key 防护)
+-- 场景 A: current == 1 (新窗口的第一个请求) -> 设置过期时间
+-- 场景 B: redis.call('TTL', key) == -1 (Key 存在但没有过期时间，即僵尸 Key) -> 补上过期时间
+if current == 1 or redis.call('TTL', key) == -1 then
     redis.call('EXPIRE', key, window)
 end
 
@@ -59,63 +62,39 @@ end
 return 1
 ```
 
-## 3. Java 调用流程图 (Mermaid)
+## 3. 真实调用流程图 (Mermaid)
 
-该图展示了从 `RedisRateLimiter.tryAcquire` 方法发起调用，到执行 Lua 脚本，再到返回结果的完整链路。
+该图展示了从 Java 调用到 Redis 执行，再到降级处理的完整链路。
 
 ```mermaid
 graph TD
-    subgraph "业务应用层 (Java)"
-        A["RateLimitAspect.around()"] --> B["redisRateLimiter.tryAcquire(key, limit, window)"]
-    end
+    Start("AOP 切面调用<br/>tryAcquire(key, limit, window)") --> RedisCall["RedisRateLimiter.tryAcquire"]
 
-    subgraph "RedisRateLimiter.java (客户端)"
-        B --> C["构造 Redis Key<br/>'rate_limit:' + key"]
-        C --> D["stringRedisTemplate.execute(script, ...)<br/>【发送脚本和参数到 Redis】"]
-        
-        D -- "异常 (超时/网络错误)" --> E["触发本地降级<br/>fallbackRateLimiter.tryAcquire()"]
-    end
+    %% 1. Redis 调用
+    RedisCall --> Execute{"stringRedisTemplate.execute(script)"}
+    
+    Execute -- "正常执行" --> LuaScript["<b><font color=blue>Redis Server (Lua)</font></b><br/>INCR -> TTL Check -> EXPIRE"]
+    
+    LuaScript --> CheckLimit{"current > limit ?"}
+    CheckLimit -- "Yes" --> Reject("返回 false (限流)")
+    CheckLimit -- "No" --> Pass("返回 true (放行)")
 
-    subgraph "Redis Server (服务端)"
-        D --> F["<b>原子执行 Lua 脚本</b>"]
-        F --> G["INCR key<br/>(计数器自增)"]
-        G --> H{"current == 1 ?<br/>(是否首个请求)"}
-        H -- "Yes" --> I["EXPIRE key window<br/>(设置窗口过期时间)"]
-        H -- "No" --> J
-        I --> J{"current > limit ?<br/>(是否超限)"}
-        
-        J -- "Yes" --> K["返回 0 (限流)"]
-        J -- "No" --> L["返回 1 (放行)"]
-    end
+    %% 2. 异常降级
+    Execute -- "异常 (超时/网络错误)" --> Catch["Catch Exception<br/>记录错误日志"]
+    Catch --> FallbackCalc["计算降级 QPS<br/>fallbackQps = (limit/window) * ratio"]
+    FallbackCalc --> LocalLimit{"fallbackRateLimiter.tryAcquire"}
+    
+    LocalLimit -- "通过" --> PassFallback("返回 true (降级放行)")
+    LocalLimit -- "拒绝" --> RejectFallback("返回 false (降级限流)")
 
-    subgraph "结果处理"
-        K --> M["Java: 返回 false"]
-        L --> N["Java: 返回 true"]
-        E --> O["Java: 返回降级结果"]
-    end
-
-    M --> End["End"]
-    N --> End
-    O --> End
+    %% 样式
+    style Start fill:#e1f5fe
+    style Pass fill:#c8e6c9
+    style PassFallback fill:#fff9c4
+    style Reject fill:#ffcdd2
+    style RejectFallback fill:#ffcdd2
 ```
 
-## 4. 关键设计解析
-
-### 4.1 容错与降级机制
-
-在分布式系统中，Redis 服务可能会出现抖动或不可用。为了防止因限流组件故障导致整个业务不可用，`RedisRateLimiter` 设计了完善的降级机制。
-
-*   **异常捕获**：在 `tryAcquire` 中捕获所有 Redis 执行异常（如 `RedisConnectionException`, `QueryTimeoutException`）。
-*   **本地兜底**：一旦 Redis 异常，立即切换到 `fallbackRateLimiter`（基于 Guava 的单机限流器）。
-*   **降级策略**：
-    *   **降级比例**：通过 `redisFallbackRatio` 配置降级后的 QPS 比例（默认 0.5）。例如原限流 100，降级后单机限流 50。
-    *   **隔离 Key**：使用 `redis_fallback:` 前缀构造独立的降级 Key，避免与正常单机限流冲突。
-
-### 4.2 为什么没有使用本地缓存？
-
-当前的实现**没有**在 Java 层引入本地缓存（如 Caffeine）来缓存 Redis 的限流结果。
-
-*   **原因**：固定窗口算法的核心是**实时计数**。每一个请求都必须去 Redis 增加计数器，才能准确判断是否超限。如果使用本地缓存，会导致多个实例之间的计数不一致，从而失去分布式限流的意义。
-*   **权衡**：虽然每次请求都有一次 Redis 网络开销，但 Lua 脚本执行极快（微秒级）。对于大多数业务场景，Redis 的性能完全足以支撑。如果需要极致性能，可以考虑升级为“令牌桶算法 + 批量预取”的模式，但这会显著增加实现复杂度。
-
-**总结**：这是一个**简单、可靠且具备高可用降级能力**的分布式限流实现，非常适合作为微服务架构中的流量控制组件。
+---
+*文档生成时间: 2025-12-22*
+*所有权: RedisStudy 项目组*
