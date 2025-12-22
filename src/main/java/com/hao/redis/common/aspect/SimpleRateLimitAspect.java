@@ -85,6 +85,20 @@ public class SimpleRateLimitAspect {
 
         // 获取限流键
         String key = resolveRateLimitKey(limit);
+
+//        // --- START: 新增用户级限流逻辑 ---
+//        // 【问题】: todo 如果只对接口限流，一个恶意用户的高频请求会占满所有令牌，导致正常用户无法访问（劣币驱逐良币）。
+//        // 【解决】: 为每个用户或IP设置一个独立的、较低的限流阈值，实现攻击隔离。
+//        String userIdentifier = resolveUserIdentifier();
+//        String userLimitKey = "user_limit:" + key + ":" + userIdentifier;
+//        double userQps = 5.0; // 此处为演示硬编码，实际应来自注解属性或配置中心
+//
+//        if (!rateLimiter.tryAcquire(userLimitKey, userQps)) {
+//            log.warn("用户级限流拦截|User_level_rate_limited,key={},qps={}", userLimitKey, userQps);
+//            throw new RateLimitException("操作过于频繁，请稍后重试");
+//        }
+//        // --- END: 新增用户级限流逻辑 ---
+
         double qps = parseQps(limit.qps());
 
         // 1. 第一道防线：单机限流 (Guava)
@@ -233,5 +247,33 @@ public class SimpleRateLimitAspect {
             return (String) pattern;
         }
         return null;
+    }
+
+    /**
+     * [新增] 解析用户唯一标识的伪代码
+     *
+     * 实现逻辑：
+     * 1. 尝试从 Session 或 Token 中获取已登录的用户 ID。
+     * 2. 如果获取不到（未登录用户），则回退到获取客户端的真实 IP 地址。
+     *
+     * @return 用户唯一标识 (userId 或 IP)
+     */
+    private String resolveUserIdentifier() {
+        HttpServletRequest request = getCurrentRequest();
+        if (request == null) {
+            return "unknown_user";
+        }
+
+        // 伪代码：优先从认证信息中获取 userId
+        // String userId = (String) request.getAttribute("userId"); // 假设登录拦截器会注入这个属性
+        // if (userId != null && !userId.isEmpty()) {
+        //     return userId;
+        // }
+
+        // 伪代码：如果未登录，则使用 IP 作为标识
+        // return IpUtil.getRealIp(request); // 假设有一个工具类能获取真实IP
+
+        // 这里为了演示，我们直接返回一个模拟的 IP
+        return "127.0.0.1";
     }
 }
