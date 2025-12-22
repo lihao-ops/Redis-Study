@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -538,18 +539,27 @@ public class RedisClientImpl implements RedisClient<String> {
     public List<String> blpop(int timeoutSeconds, String... keys) {
         // 实现思路：
         // 1. 参数校验。
-        // 2. 调用 RedisTemplate 执行对应命令。
+        // 2. 使用 RedisTemplate 的 execute 方法调用底层连接的 bLPop。
+        // 3. 这样可以实现真正的原子性多 Key 监听。
         validateParams(keys, "keys");
         validatePositive(timeoutSeconds, "timeoutSeconds");
-        Duration timeout = Duration.ofSeconds(timeoutSeconds);
-        for (String key : keys) {
-            validateKey(key, "key");
-            String value = redisTemplate.opsForList().leftPop(key, timeout);
-            if (value != null) {
-                return Arrays.asList(key, value);
+
+        // 核心修复：使用 execute 调用底层 bLPop
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            byte[][] keyBytes = new byte[keys.length][];
+            for (int i = 0; i < keys.length; i++) {
+                keyBytes[i] = keys[i].getBytes(StandardCharsets.UTF_8);
             }
-        }
-        return null;
+            List<byte[]> result = connection.bLPop(timeoutSeconds, keyBytes);
+            if (result == null || result.isEmpty()) {
+                return null;
+            }
+            // bLPop 返回的第一个元素是 key，第二个是 value
+            return Arrays.asList(
+                    new String(result.get(0), StandardCharsets.UTF_8),
+                    new String(result.get(1), StandardCharsets.UTF_8)
+            );
+        });
     }
 
     /** 列表 -> BRPOP：阻塞右出队。示例：BRPOP 5 queue。 */
@@ -557,18 +567,26 @@ public class RedisClientImpl implements RedisClient<String> {
     public List<String> brpop(int timeoutSeconds, String... keys) {
         // 实现思路：
         // 1. 参数校验。
-        // 2. 调用 RedisTemplate 执行对应命令。
+        // 2. 使用 RedisTemplate 的 execute 方法调用底层连接的 bRPop。
         validateParams(keys, "keys");
         validatePositive(timeoutSeconds, "timeoutSeconds");
-        Duration timeout = Duration.ofSeconds(timeoutSeconds);
-        for (String key : keys) {
-            validateKey(key, "key");
-            String value = redisTemplate.opsForList().rightPop(key, timeout);
-            if (value != null) {
-                return Arrays.asList(key, value);
+
+        // 核心修复：使用 execute 调用底层 bRPop
+        return redisTemplate.execute((RedisCallback<List<String>>) connection -> {
+            byte[][] keyBytes = new byte[keys.length][];
+            for (int i = 0; i < keys.length; i++) {
+                keyBytes[i] = keys[i].getBytes(StandardCharsets.UTF_8);
             }
-        }
-        return null;
+            List<byte[]> result = connection.bRPop(timeoutSeconds, keyBytes);
+            if (result == null || result.isEmpty()) {
+                return null;
+            }
+            // bRPop 返回的第一个元素是 key，第二个是 value
+            return Arrays.asList(
+                    new String(result.get(0), StandardCharsets.UTF_8),
+                    new String(result.get(1), StandardCharsets.UTF_8)
+            );
+        });
     }
 
     /** 列表 -> LRANGE：区间读取。示例：LRANGE queue 0 9。 */

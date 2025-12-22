@@ -1,74 +1,71 @@
 package com.hao.redis.common.aspect;
 
-import java.lang.annotation.*;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
 /**
- * 接口限流注解
+ * 单机限流注解
  *
- * 类职责：
- * 声明接口或方法级别的限流策略与阈值。
+ * 注解职责：
+ * 标记需要进行限流的方法，并提供限流参数配置。
  *
  * 设计目的：
- * 1. 通过注解实现限流配置与业务逻辑解耦。
- * 2. 支持单机与分布式两级限流策略组合。
+ * 1. 声明式编程：通过注解即可为接口开启限流，无需侵入业务代码。
+ * 2. 灵活配置：支持为不同接口配置不同的限流阈值与模式。
  *
- * 为什么需要该类：
- * 限流配置需要统一入口与可读性，注解是最轻量的声明方式。
+ * 为什么需要该注解：
+ * 注解是实现 AOP 的最佳载体，便于切面精准定位目标方法。
  *
  * 核心实现思路：
- * - 由切面解析注解元数据并执行限流判断。
- * - 通过注解参数绑定不同限流策略与提示信息。
+ * - 定义限流模式、QPS、消息等属性。
+ * - 切面通过反射读取注解属性以执行相应限流策略。
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
-@Documented
 public @interface SimpleRateLimit {
 
     /**
-     * 限流键
-     *
-     * 实现逻辑：
-     * 1. 为空时使用请求匹配路径作为限流键。
-     * 2. 显式设置可避免动态路径导致键膨胀。
-     *
-     * @return 限流键
+     * 限流模式
      */
-    String key() default "";
+    enum LimitType {
+        /**
+         * 单机限流（默认）
+         */
+        STANDALONE,
+        /**
+         * 分布式限流
+         */
+        DISTRIBUTED
+    }
 
     /**
-     * 每秒允许的请求数（支持 ${property} 格式或直接数字）
-     *
-     * 实现逻辑：
-     * 1. 作为元数据提供 QPS 配置给切面解析。
-     *
-     * @return QPS 配置
-     */
-    String qps() default "100";
-    
-    /**
-     * 限流提示
-     *
-     * 实现逻辑：
-     * 1. 作为元数据提供限流提示给切面与异常处理。
-     *
-     * @return 限流提示语
-     */
-    String message() default "请求过于频繁，请稍后重试";
-
-    /**
-     * 限流类型
-     *
-     * 实现逻辑：
-     * 1. 作为元数据提供限流策略给切面执行。
-     *
-     * @return 限流类型
+     * 限流模式，默认单机
      */
     LimitType type() default LimitType.STANDALONE;
 
-    enum LimitType {
-        /** 单机限流（Guava RateLimiter） */
-        STANDALONE,
-        /** 分布式限流（Redis + Lua）+ 单机兜底 */
-        DISTRIBUTED
-    }
+    /**
+     * 接口级的 QPS 阈值。
+     * 支持 SpEL 表达式从配置文件读取，如 "${rate-limit.api.default-qps}"。
+     */
+    String qps() default "100.0";
+
+    /**
+     * 用户级的 QPS 阈值。
+     * 用于防止单个用户恶意攻击，通常设置得比接口级 QPS 低。
+     */
+    double userQps() default 5.0;
+
+    /**
+     * 限流后返回的提示信息
+     */
+    String message() default "系统繁忙，请稍后重试";
+
+    /**
+     * 限流键，默认为空。
+     * 为空时，自动使用请求的匹配路径作为键。
+     * 建议在路径包含变量时（如 /users/{id}）显式指定，以保证限流键的唯一性。
+     */
+    String key() default "";
 }

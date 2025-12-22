@@ -1,6 +1,5 @@
 package com.hao.redis.service.impl;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.hao.redis.common.constants.DateConstants;
 import com.hao.redis.common.enums.RedisKeysEnum;
 import com.hao.redis.common.util.JsonUtil;
@@ -113,10 +112,9 @@ public class WeiboServiceImpl implements WeiboService {
      * @param userId 发布用户ID
      * @param body 微博内容
      * @return 微博ID
-     * @throws JsonProcessingException JSON 序列化异常
      */
     @Override
-    public String createPost(String userId, WeiboPost body) throws JsonProcessingException {
+    public String createPost(String userId, WeiboPost body) {
         // 实现思路：
         // 1. 生成微博ID并补全字段。
         // 2. 写入详情与时间轴。
