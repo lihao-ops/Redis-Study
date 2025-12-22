@@ -1,8 +1,11 @@
 package com.hao.redis.common.interceptor;
 
-import com.google.common.cache.Cache;
+import com.github.benmanes.caffeine.cache.Cache;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.context.SpringBootTest;
 
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
@@ -13,39 +16,38 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 单机限流器内存泄露 JMX 指标验证测试
+ * 单机限流器内存泄露 JMX 指标验证测试 (Caffeine版 - 集成测试)
  *
  * 测试目的：
- * 通过 JVM 标准监控指标（JMX），量化验证内存泄露对系统的实际影响。
+ * 在 Spring 容器环境下，验证注入的 Caffeine 缓存是否能有效防止内存泄露。
  *
  * 核心指标：
- * 1. Heap Memory Used: 堆内存实际使用量（验证是否持续增长）。
- * 2. GC Count/Time: GC 发生的次数与耗时（验证 GC 是否频繁且无效）。
- * 3. Cache Size: 实际持有的对象数量（验证是否无法回收）。
+ * 1. Cache Size: 验证缓存大小是否被成功限制在 maximumSize 以内。
+ * 2. Heap Memory Used: 验证堆内存使用是否稳定，不会无限增长。
  */
 @Slf4j
+@SpringBootTest // 启用 Spring Boot 测试容器
 public class SimpleRateLimiterOOMTest {
 
-    // 设定一个危险阈值，模拟生产环境报警线
-    // 由于我们设置了 maximumSize(50000)，所以这里阈值设为 50001 来验证是否被限制住
-    private static final int DANGEROUS_THRESHOLD = 50001;
+    @Autowired
+    private SimpleRateLimiter simpleRateLimiter; // 直接注入被测对象
+
+    @Autowired
+    @Qualifier("rateLimiterCache") // 明确注入我们在 CacheConfig 中定义的 Bean
+    private Cache<String, ?> limitersCache;
+
+    // 设定一个危险阈值，应与 CacheConfig 中的 maximumSize 保持关联
+    private static final int MAXIMUM_SIZE = 50000;
+    private static final int DANGEROUS_THRESHOLD = MAXIMUM_SIZE + 1;
 
     @Test
-    public void testMemoryLeakWithMetrics() throws Exception {
-        SimpleRateLimiter simpleRateLimiter = new SimpleRateLimiter();
-
-        // 反射获取 Cache 以便统计对象数
-        // 注意：现在 limiters 是 Cache 类型，不再是 Map
-        Field limitersField = SimpleRateLimiter.class.getDeclaredField("limiters");
-        limitersField.setAccessible(true);
-        Cache<String, ?> limitersCache = (Cache<String, ?>) limitersField.get(simpleRateLimiter);
-
+    public void testMemoryLeakWithMetricsInSpringContext() throws Exception {
         // 获取 JMX Beans (JVM 内部监控接口)
         MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
         List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
 
-        log.info("开始JMX指标监控测试|Start_JMX_metrics_test");
-        printMetrics(memoryMXBean, gcBeans, limitersCache.size());
+        log.info("开始JMX指标监控测试(Spring集成版)|Start_JMX_metrics_test_with_Spring_context");
+        printMetrics(memoryMXBean, gcBeans, limitersCache.estimatedSize());
 
         for (int i = 1; i <= 100000; i++) {
             String randomKey = UUID.randomUUID().toString();
@@ -56,11 +58,11 @@ public class SimpleRateLimiterOOMTest {
                 // 显式调用 GC，模拟 JVM 试图自救
                 System.gc();
                 
-                // Guava Cache 的 size() 是近似值，且清理是惰性的或在写操作时触发
-                // 调用 cleanUp() 强制触发清理过期或超限的条目
+                // Caffeine 的清理是异步的，调用 cleanUp() 有助于触发清理
                 limitersCache.cleanUp();
                 
-                long currentSize = limitersCache.size();
+                // Caffeine 的 size() 是近似值，用 estimatedSize() 更准确
+                long currentSize = limitersCache.estimatedSize();
                 
                 // 打印当前详细指标
                 printMetrics(memoryMXBean, gcBeans, currentSize);
@@ -69,15 +71,11 @@ public class SimpleRateLimiterOOMTest {
                 if (currentSize >= DANGEROUS_THRESHOLD) {
                     log.error("❌ 触发内存泄露熔断|Memory_leak_circuit_breaker_triggered");
                     
-                    // 收集最终异常指标
                     MemoryUsage heapUsage = memoryMXBean.getHeapMemoryUsage();
                     long usedMB = heapUsage.getUsed() / 1024 / 1024;
-                    long totalGcTime = gcBeans.stream().mapToLong(GarbageCollectorMXBean::getCollectionTime).sum();
-                    long totalGcCount = gcBeans.stream().mapToLong(GarbageCollectorMXBean::getCollectionCount).sum();
 
                     log.error(">>> 异常指标分析 <<<");
-                    log.error("1. [对象堆积] Cache大小: {} (预期应 <= 50000)", currentSize);
-                    log.error("2. [内存无法释放] 堆内存已用: {} MB", usedMB);
+                    log.error("1. [对象堆积] Cache大小: {} (预期应 <= {})", currentSize, MAXIMUM_SIZE);
                     
                     throw new RuntimeException(String.format(
                         "JMX指标异常：内存泄露确认。CacheSize=%d, HeapUsed=%dMB", 
@@ -86,17 +84,16 @@ public class SimpleRateLimiterOOMTest {
             }
         }
         
-        log.info("✅ 测试通过：Cache大小被成功限制在50000以内|Test_passed_cache_size_limited");
+        log.info("✅ 测试通过：Cache大小被成功限制在{}以内|Test_passed_cache_size_limited_within_{}", MAXIMUM_SIZE, MAXIMUM_SIZE);
     }
 
-    private void printMetrics(MemoryMXBean memoryBean, List<GarbageCollectorMXBean> gcBeans, long mapSize) {
+    private void printMetrics(MemoryMXBean memoryBean, List<GarbageCollectorMXBean> gcBeans, long cacheSize) {
         MemoryUsage heapUsage = memoryBean.getHeapMemoryUsage();
         long usedMB = heapUsage.getUsed() / 1024 / 1024;
         long committedMB = heapUsage.getCommitted() / 1024 / 1024;
 
         StringBuilder gcInfo = new StringBuilder();
         for (GarbageCollectorMXBean gcBean : gcBeans) {
-            // 过滤掉没有运行过的 GC
             if (gcBean.getCollectionCount() > 0) {
                 gcInfo.append("[").append(gcBean.getName())
                       .append(": count=").append(gcBean.getCollectionCount())
@@ -105,6 +102,6 @@ public class SimpleRateLimiterOOMTest {
         }
 
         log.info("监控快照|Metrics_snapshot, CacheSize={}, HeapUsed={}MB, HeapCommitted={}MB, GC_Details={}",
-                mapSize, usedMB, committedMB, gcInfo.toString());
+                cacheSize, usedMB, committedMB, gcInfo.toString());
     }
 }
