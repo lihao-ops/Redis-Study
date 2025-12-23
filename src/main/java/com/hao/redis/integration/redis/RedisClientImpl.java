@@ -172,6 +172,32 @@ public class RedisClientImpl implements RedisClient<String> {
         return redisTemplate.opsForValue().get(key);
     }
 
+    /** 字符串 -> SETBIT：设置位。示例：SETBIT mykey 7 1。 */
+    @Override
+    public Boolean setBit(String key, long offset, boolean value) {
+        // 实现思路：
+        // 1. 参数校验。
+        // 2. 调用 RedisTemplate 执行对应命令。
+        validateKey(key, "key");
+        if (offset < 0) {
+            throw new IllegalArgumentException("offset 不能为负数");
+        }
+        return redisTemplate.opsForValue().setBit(key, offset, value);
+    }
+
+    /** 字符串 -> GETBIT：获取位。示例：GETBIT mykey 7。 */
+    @Override
+    public Boolean getBit(String key, long offset) {
+        // 实现思路：
+        // 1. 参数校验。
+        // 2. 调用 RedisTemplate 执行对应命令。
+        validateKey(key, "key");
+        if (offset < 0) {
+            throw new IllegalArgumentException("offset 不能为负数");
+        }
+        return redisTemplate.opsForValue().getBit(key, offset);
+    }
+
     /** 字符串 -> MGET：批量读取。示例：MGET user:1 user:2。 */
     @Override
     public List<String> mget(String... keys) {

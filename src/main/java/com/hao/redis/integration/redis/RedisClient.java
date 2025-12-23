@@ -58,6 +58,16 @@ public interface RedisClient<T> {
     T get(String key);
 
     /**
+     * 字符串 -> SETBIT，设置位。示例：SETBIT mykey 7 1。
+     */
+    Boolean setBit(String key, long offset, boolean value);
+
+    /**
+     * 字符串 -> GETBIT，获取位。示例：GETBIT mykey 7。
+     */
+    Boolean getBit(String key, long offset);
+
+    /**
      * 字符串 -> MGET，批量读取。示例：MGET user:1 user:2。
      */
     List<T> mget(String... keys);

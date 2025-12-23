@@ -2,6 +2,7 @@ package com.hao.redis.service.impl;
 
 import com.hao.redis.common.constants.DateConstants;
 import com.hao.redis.common.enums.RedisKeysEnum;
+import com.hao.redis.common.util.BloomFilterUtil;
 import com.hao.redis.common.util.JsonUtil;
 import com.hao.redis.dal.model.WeiboPost;
 import com.hao.redis.integration.redis.RedisClient;
@@ -38,6 +39,9 @@ public class WeiboServiceImpl implements WeiboService {
     @Autowired
     private RedisClient<String> redisClient;
 
+    @Autowired
+    private BloomFilterUtil bloomFilterUtil;
+
     /**
      * 注册新用户
      *
@@ -65,6 +69,10 @@ public class WeiboServiceImpl implements WeiboService {
         paramMap.put("follows", "0"); // 初始关注 0
         // 核心代码：写入用户信息
         redisClient.hmset(RedisKeysEnum.USER_PREFIX.join(newUserId), paramMap);
+        
+        // 核心代码：将 userId 加入布隆过滤器
+        bloomFilterUtil.add("user", String.valueOf(newUserId));
+        
         return newUserId;
     }
 
@@ -79,6 +87,12 @@ public class WeiboServiceImpl implements WeiboService {
      */
     @Override
     public Map<String, String> getUser(String userId) {
+        // 核心代码：布隆过滤器前置校验
+        if (!bloomFilterUtil.mightContain("user", userId)) {
+            log.warn("布隆过滤器拦截非法用户请求|BloomFilter_block_user,userId={}", userId);
+            return Collections.emptyMap();
+        }
+
         // 实现思路：
         // 1. 通过用户ID读取用户哈希信息。
         // 核心代码：读取用户哈希
@@ -136,6 +150,9 @@ public class WeiboServiceImpl implements WeiboService {
         redisClient.lpush(RedisKeysEnum.TIMELINE_KEY.getKey(), postId);
         // 优化：限制列表长度，防止无限增长 (保留最近 1000 条)
         redisClient.ltrim(RedisKeysEnum.TIMELINE_KEY.getKey(), 0, 999);
+
+        // 核心代码：将 postId 加入布隆过滤器
+        bloomFilterUtil.add("post", postId);
         
         return postId;
     }
@@ -242,6 +259,12 @@ public class WeiboServiceImpl implements WeiboService {
      * @return 微博详情
      */
     public WeiboPost getWeiboPost(String postId) {
+        // 核心代码：布隆过滤器前置校验
+        if (!bloomFilterUtil.mightContain("post", postId)) {
+            log.warn("布隆过滤器拦截非法请求|BloomFilter_block,postId={}", postId);
+            return null;
+        }
+
         // 实现思路：
         // 1. 读取微博详情并反序列化。
         // 核心代码：读取微博详情
