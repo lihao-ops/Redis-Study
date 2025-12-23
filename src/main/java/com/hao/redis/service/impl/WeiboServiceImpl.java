@@ -259,20 +259,40 @@ public class WeiboServiceImpl implements WeiboService {
      * @return 微博详情
      */
     public WeiboPost getWeiboPost(String postId) {
-        // 核心代码：布隆过滤器前置校验
+        // 1. 第一道防线：布隆过滤器前置校验
         if (!bloomFilterUtil.mightContain("post", postId)) {
             log.warn("布隆过滤器拦截非法请求|BloomFilter_block,postId={}", postId);
             return null;
         }
 
-        // 实现思路：
-        // 1. 读取微博详情并反序列化。
-        // 核心代码：读取微博详情
-        String postInfoStr = redisClient.hget(RedisKeysEnum.WEIBO_POST_INFO.getKey(), postId);
-        if (postInfoStr == null) {
+        // 2. 第二道防线：检查空值缓存（防止布隆误判导致的缓存穿透）
+        // 如果空值缓存存在，说明之前已经查过数据库且不存在，直接返回 null
+        String nullCacheKey = RedisKeysEnum.WEIBO_NULL_CACHE.join(postId);
+        if (redisClient.exists(nullCacheKey)) {
+            log.warn("命中空值缓存_拦截穿透请求|Null_cache_hit,postId={}", postId);
             return null;
         }
-        // 优化：使用 JsonUtil 工具类
-        return JsonUtil.toBean(postInfoStr, WeiboPost.class);
+
+        // 3. 第三道防线：查询主缓存（Redis Hash）
+        String postInfoStr = redisClient.hget(RedisKeysEnum.WEIBO_POST_INFO.getKey(), postId);
+        if (postInfoStr != null) {
+            return JsonUtil.toBean(postInfoStr, WeiboPost.class);
+        }
+
+        // 4. 第四道防线：回源查询数据库（模拟）
+        // 真实场景：WeiboPost post = weiboMapper.selectById(postId);
+        WeiboPost postFromDb = null; // 模拟数据库查不到
+
+        if (postFromDb == null) {
+            // 5. 核心逻辑：写入空值缓存
+            // 既然布隆说存在，但数据库没有，说明发生了误判（或者数据刚被删除）
+            // 写入一个短期的空值标记（如 5 分钟），防止短时间内重复打库
+            log.warn("数据库查询为空_写入空值缓存|Db_miss_write_null_cache,postId={}", postId);
+            redisClient.setex(nullCacheKey, 300, "1"); // 300秒过期
+            return null;
+        }
+
+        // 如果数据库查到了，回写主缓存（略）
+        return postFromDb;
     }
 }

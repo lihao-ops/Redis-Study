@@ -89,7 +89,17 @@ public enum RedisKeysEnum {
      * 类型：哈希
      * 用法：键 -> "weibo:list:微博id"
      */
-    WEIBO_POST_INFO("weibo:info", "微博详情字典");
+    WEIBO_POST_INFO("weibo:info", "微博详情字典"),
+
+    // ============================
+    // 4. 防御性缓存（空值缓存）
+    // ============================
+    /**
+     * 微博空值缓存（用于解决布隆过滤器误判）
+     * 类型：字符串
+     * 用法：SETEX weibo:null:5001 300 "1"
+     */
+    WEIBO_NULL_CACHE("weibo:null:", "微博不存在标记缓存");
 
 
     private final String key;

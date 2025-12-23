@@ -2,14 +2,10 @@ package com.hao.redis.common.util;
 
 import com.hao.redis.integration.redis.RedisClient;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,6 +22,7 @@ import java.util.UUID;
  * - 使用真实 Redis 环境进行集成测试。
  * - 通过大量随机数据模拟生产环境流量。
  * - 模拟“误判”场景，验证回源逻辑的正确性。
+ * - 严格控制测试数据的生命周期，确保不污染环境。
  */
 @Slf4j
 @SpringBootTest
@@ -40,6 +37,18 @@ public class BloomFilterTest {
     // 测试用的业务分类 Key
     private static final String TEST_CATEGORY = "test_unit";
     private static final String BLOOM_KEY = "bloom:filter:" + TEST_CATEGORY;
+
+    /**
+     * 测试前准备
+     * <p>
+     * 实现逻辑：
+     * 1. 确保测试开始前 Redis 中没有残留数据。
+     * 2. 防止上次测试异常中断（如 JVM 崩溃）导致数据残留影响本次测试结果。
+     */
+    @BeforeEach
+    public void setUp() {
+        redisClient.del(BLOOM_KEY);
+    }
 
     /**
      * 清理测试数据
@@ -113,13 +122,11 @@ public class BloomFilterTest {
         // 3. 批量查询不存在的数据并统计误判。
         
         int sampleSize = 10000;
-        List<String> insertedData = new ArrayList<>(sampleSize);
         
         // 1. 插入数据
         long start = System.currentTimeMillis();
         for (int i = 0; i < sampleSize; i++) {
             String uuid = UUID.randomUUID().toString();
-            insertedData.add(uuid);
             bloomFilterUtil.add(TEST_CATEGORY, uuid);
         }
         long cost = System.currentTimeMillis() - start;
@@ -129,7 +136,7 @@ public class BloomFilterTest {
         int falsePositives = 0;
         for (int i = 0; i < sampleSize; i++) {
             // 生成肯定不存在的数据
-            String nonExistentData = UUID.randomUUID().toString() + "_new";
+            String nonExistentData = UUID.randomUUID() + "_new";
             if (bloomFilterUtil.mightContain(TEST_CATEGORY, nonExistentData)) {
                 falsePositives++;
             }

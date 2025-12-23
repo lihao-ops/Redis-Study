@@ -34,6 +34,30 @@ public class BloomFilterUtil {
     private static final String BLOOM_FILTER_PREFIX = "bloom:filter:";
 
     /**
+     * 布隆过滤器容量配置
+     * <p>
+     * 1. 位数组长度 (m): 2^24 = 16,777,216 bits (约 16Mb = 2MB 内存)
+     * 2. Hash 函数个数 (k): 3 个
+     * <p>
+     * --- 容量与误判率计算公式 ---
+     * 公式：n_max ≈ m / 9.58 (当期望误判率 p = 0.01 时)
+     * <p>
+     * 计算推导：
+     * - 当前 m = 16,777,216
+     * - 最大支撑数据量 n_max ≈ 16,777,216 / 9.58 ≈ 1,751,275 (约 175 万)
+     * <p>
+     * 结论：
+     * - 在插入 175 万条数据以内，误判率 < 1%。
+     * - 若插入 1 万条数据（如单元测试），误判率 ≈ 5.8e-9 (接近 0)。
+     * - 若业务数据量超过 175 万，需增大 BIT_SIZE (如 1 << 28)。
+     */
+    // 2^24，约 1600 万位，占用 Redis 2MB 内存
+    private static final long BIT_SIZE = 1 << 24; 
+    
+    // Hash 函数数量，k = (m/n) * ln2，当 m/n=10 时，k≈7；这里为了性能取 3
+    private static final int HASH_COUNT = 3;
+
+    /**
      * 添加元素到布隆过滤器
      *
      * @param category 业务分类（如 user, post）
@@ -98,13 +122,12 @@ public class BloomFilterUtil {
         long hash2 = hash1 * 31 + value.length();
         long hash3 = hash1 * 17 + value.charAt(0);
         
-        // 映射到 BitMap 长度范围内 (假设 2^24 位，约 1600万位，2MB)
-        long size = 1 << 24; 
+        long[] offsets = new long[HASH_COUNT];
         
-        return new long[] {
-            Math.abs(hash1 % size),
-            Math.abs(hash2 % size),
-            Math.abs(hash3 % size)
-        };
+        offsets[0] = Math.abs(hash1 % BIT_SIZE);
+        offsets[1] = Math.abs(hash2 % BIT_SIZE);
+        offsets[2] = Math.abs(hash3 % BIT_SIZE);
+        
+        return offsets;
     }
 }
