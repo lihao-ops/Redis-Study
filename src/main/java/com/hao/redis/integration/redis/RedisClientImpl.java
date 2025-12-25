@@ -13,6 +13,8 @@ import org.springframework.util.StringUtils;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -160,6 +162,38 @@ public class RedisClientImpl implements RedisClient<String> {
         validateKey(value, "value");
         validatePositive(expireSeconds, "expireSeconds");
         redisTemplate.opsForValue().set(key, value, Duration.ofSeconds(expireSeconds));
+    }
+
+    /**
+     * 预防雪崩：写入并设置随机过期时间
+     * <p>
+     * 实现逻辑：
+     * 在基础过期时间上增加一个随机偏移量（0~10%），防止大量 Key 同时过期。
+     *
+     * @param key 键
+     * @param value 值
+     * @param time 基础过期时间
+     * @param unit 时间单位
+     */
+    @Override
+    public void setWithRandomTtl(String key, String value, long time, TimeUnit unit) {
+        validateKey(key, "key");
+        validateKey(value, "value");
+        validatePositive(time, "time");
+
+        // 1. 计算随机偏移量 (0 ~ 10% 的基础时间)
+        // 使用 ThreadLocalRandom 避免多线程竞争
+        // 修正：确保即使 time 很小，也能产生随机效果
+        long randomBound = Math.max(1, time / 10);
+        long offset = ThreadLocalRandom.current().nextLong(randomBound);
+        
+        // 2. 计算最终过期时间
+        long finalTime = time + offset;
+        
+        // 3. 写入 Redis
+        redisTemplate.opsForValue().set(key, value, finalTime, unit);
+        
+        log.debug("预防雪崩设置完成|Avalanche_protection, key={}, baseTtl={}, finalTtl={}", key, time, finalTime);
     }
 
     /** 字符串 -> GET：读取值。示例：GET user:1。 */

@@ -5,6 +5,7 @@ import org.springframework.data.redis.core.Cursor;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 统一 Redis 客户端接口
@@ -51,6 +52,19 @@ public interface RedisClient<T> {
      * 字符串 -> SETEX，写入并设置过期。示例：SETEX captcha:123 300 "8391"。
      */
     void setex(String key, int expireSeconds, T value);
+
+    /**
+     * 预防雪崩：写入并设置随机过期时间
+     * <p>
+     * 实现逻辑：
+     * 在基础过期时间上增加一个随机偏移量（0~10%），防止大量 Key 同时过期。
+     *
+     * @param key 键
+     * @param value 值
+     * @param time 基础过期时间
+     * @param unit 时间单位
+     */
+    void setWithRandomTtl(String key, T value, long time, TimeUnit unit);
 
     /**
      * 字符串 -> GET，读取值。示例：GET user:1。
