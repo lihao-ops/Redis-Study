@@ -2,6 +2,7 @@ package com.hao.redis.common.util;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -80,6 +81,28 @@ public class JsonUtil {
         } catch (JsonProcessingException e) {
             log.error("JSON转对象失败|Json_to_object_fail,json={},class={}", json, clazz.getName(), e);
             throw new RuntimeException("JSON反序列化失败", e);
+        }
+    }
+
+    /**
+     * JSON 字符串转泛型对象 (如 RedisLogicalData<WeiboPost>)
+     *
+     * @param json JSON 字符串
+     * @param outerClass 外层泛型类 (如 RedisLogicalData.class)
+     * @param innerClass 内层泛型参数类 (如 WeiboPost.class)
+     * @return 目标对象
+     */
+    public static <T, E> T toBean(String json, Class<T> outerClass, Class<E> innerClass) {
+        if (json == null || json.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            JavaType javaType = OBJECT_MAPPER.getTypeFactory().constructParametricType(outerClass, innerClass);
+            return OBJECT_MAPPER.readValue(json, javaType);
+        } catch (JsonProcessingException e) {
+            log.error("JSON转泛型对象失败|Json_to_generic_object_fail,json={},outer={},inner={}", 
+                    json, outerClass.getName(), innerClass.getName(), e);
+            throw new RuntimeException("JSON反序列化泛型对象失败", e);
         }
     }
 
