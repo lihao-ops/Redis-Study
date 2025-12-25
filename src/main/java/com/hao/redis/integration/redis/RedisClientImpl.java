@@ -165,6 +165,24 @@ public class RedisClientImpl implements RedisClient<String> {
     }
 
     /**
+     * 【原子操作】分布式锁加锁
+     * 对应原生命令: SET key value NX EX seconds
+     *
+     * @param key 锁键
+     * @param value 锁值（通常是UUID，用于安全解锁）
+     * @param expireTime 过期时间
+     * @param unit 时间单位
+     * @return 是否加锁成功
+     */
+    @Override
+    public Boolean tryLock(String key, String value, long expireTime, TimeUnit unit) {
+        validateKey(key, "key");
+        validateKey(value, "value");
+        validatePositive(expireTime, "expireTime");
+        return redisTemplate.opsForValue().setIfAbsent(key, value, expireTime, unit);
+    }
+
+    /**
      * 预防雪崩：写入并设置随机过期时间
      * <p>
      * 实现逻辑：
@@ -1217,7 +1235,7 @@ public class RedisClientImpl implements RedisClient<String> {
         return redisTemplate.renameIfAbsent(oldKey, newKey);
     }
 
-    /** 通用 -> KEYS：模式匹配列出 key（生产慎用）。示例：KEYS user:*。 */
+    /** 通用 -> KEYS：模式匹配列出键（生产慎用）。示例：KEYS user:*。 */
     @Override
     public Set<String> keys(String pattern) {
         // 实现思路：
@@ -1228,7 +1246,7 @@ public class RedisClientImpl implements RedisClient<String> {
         return result != null ? result : Collections.emptySet();
     }
 
-    /** 通用 -> SCAN：迭代遍历 key。示例：SCAN 0 MATCH user:* COUNT 100。 */
+    /** 通用 -> SCAN：迭代遍历键。示例：SCAN 0 MATCH user:* COUNT 100。 */
     @Override
     public Cursor<String> scan(String pattern, long count) {
         // 实现思路：

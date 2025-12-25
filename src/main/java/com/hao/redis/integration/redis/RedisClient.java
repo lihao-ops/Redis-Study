@@ -54,6 +54,18 @@ public interface RedisClient<T> {
     void setex(String key, int expireSeconds, T value);
 
     /**
+     * 【原子操作】分布式锁加锁
+     * 对应原生命令: SET key value NX EX seconds
+     *
+     * @param key 锁键
+     * @param value 锁值（通常是UUID，用于安全解锁）
+     * @param expireTime 过期时间
+     * @param unit 时间单位
+     * @return 是否加锁成功
+     */
+    Boolean tryLock(String key, T value, long expireTime, TimeUnit unit);
+
+    /**
      * 预防雪崩：写入并设置随机过期时间
      * <p>
      * 实现逻辑：
