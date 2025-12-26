@@ -3,6 +3,7 @@ package com.hao.redis;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Redis 学习项目启动入口
@@ -20,9 +21,11 @@ import org.springframework.cache.annotation.EnableCaching;
  * 核心实现思路：
  * - 组合 @SpringBootApplication 完成自动配置与组件扫描。
  * - 组合 @EnableCaching 启用缓存注解能力。
+ * - 组合 @EnableScheduling 启用定时任务能力。
  */
 @SpringBootApplication
 @EnableCaching
+@EnableScheduling // 启用定时任务
 public class RedisApplication {
 
     /**
